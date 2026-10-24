@@ -1,4 +1,4 @@
-"""ASGI factory, runtime lifespan, and the Uvicorn parent-process entry point."""
+"""Application Factory, runtime lifespan, and the Uvicorn parent-process entry point."""
 
 import argparse
 import logging
@@ -118,7 +118,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     overrides = {key: value for key, value in vars(args).items() if value is not None}
     config = load_settings(**overrides)
-    # Spawned Uvicorn children import the factory and read the same validated config.
+    # Spawned Uvicorn children import the Application Factory and read validated config.
     # Export only CLI overrides; keep secrets in their existing environment/.env.
     for key, value in overrides.items():
         os.environ[f"APP_{key.upper()}"] = str(value)

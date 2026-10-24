@@ -1,8 +1,8 @@
 # Package、模組命名與功能規範
 
-本規範採用使用者提供 SVG 的實體分層與 package 命名。`bootstrap/` 負責啟動組裝，`src/` 下的 `api`、`services`、`application`、`domain`、`plugins`、`infrastructure` 為同層 package；`config`、`utils`、`shared_models` 是按需使用的支援 package。新增應用沿這些層增加對應模組，不再建立 `backend/modules/<name>/` 或複製一套 feature module 目錄。
+本規範定義通用 Python Backend 的實體分層與 package 命名，對應 [軟體架構設計規格](software-design.md) v1.2 與專案內更新版架構圖。`bootstrap/` 負責啟動組裝，`src/` 下的 `api`、`services`、`application`、`domain`、`plugins`、`infrastructure` 為同層 package；`config`、`utils`、`shared_models` 是按需使用的支援 package。新增應用沿這些層增加對應模組，不再建立 `backend/modules/<name>/` 或複製一套 feature module 目錄。
 
-規範中的 `<capability>`、`<task_name>` 等是待替換佔位名稱。範本不預設診斷、PdM、Fab／Tool 識別、設定繼承或設備動作。SVG 的 `Execute diagnostics`、`Global → Fab → Tool`、`Lock → Fetch → Evaluate → Publish` 表示未來應用可放入的位置；它們不是本通用平台已實作的業務流程。
+規範中的 `<capability>`、`<task_name>` 等是待替換佔位名稱。範本提供身份、資料權限、任務、運算與匯出的共通契約；應用的模型、政策、流程與資料來源由新增能力明確定義。`create_app()` 使用軟體工程的 Application Factory Pattern，負責建立 FastAPI application；此處 factory 只指程式建構方式。術語定義見 [術語與範圍](glossary.md)。
 
 ## 實體目錄與責任
 
@@ -67,27 +67,27 @@ router 不建立 DB／broker client、不直接 query repository、不選擇具�
 | `observability.py` | 結構化記錄與 request context；不記錄秘密及完整業務 payload。日誌不是不可竄改稽核帳本。 |
 | `concurrency.py` | 有界 thread 執行、程序內 admission／drain 與取消語意；不承諾強制停止 Python thread。 |
 
-此層的 `services` 指技術性 runtime 能力，不放診斷、排程決策、工廠策略或資料選擇規則。`services` 與 `application` 是同層；application 可以經 domain port 使用需要的 runtime 支援，不必經過固定的 `api → services → application` 呼叫鏈。
+此層的 `services` 指技術性 runtime 能力；應用政策、流程與資料選擇規則由 application／domain 持有。`services` 與 `application` 是同層；application 可以經 domain port 使用需要的 runtime 支援，不必經過固定的 `api → services → application` 呼叫鏈。
 
 ### `src/application/`：Use Cases
 
 | SVG 模組 | 功能規範 |
 | --- | --- |
 | `use_cases.py` | 公開 `JobService`、`IdentityService`、`KernelService`、`ExportService` 與 `KernelJobHandler`；能力專屬使用案例放在 `<capability>/`，透過建構式注入 domain ports。 |
-| `registry.py` | `TaskRegistry` 的明確註冊與查找；註冊表不是任意程式載入器，亦未實作按工廠身份自動選擇策略。 |
-| `hierarchy.py` | 未來設定階層解析的擴充邊界；加入實作前，應定義 scope、precedence、merge、衝突與版本快照。本版不實作 Global／Fab／Tool 語意。 |
-| `orchestration.py` | `KernelJobHandler` 將背景工作委派給 kernel 使用案例，重新解析有效身份；其他業務協調按需加入，經 ports 注入。沒有預設 Lock／Fetch／Evaluate／Publish pipeline。 |
+| `registry.py` | `TaskRegistry` 的明確註冊與名稱查找；註冊表不載入任意程式，也不依應用資料自動選擇策略。 |
+| `hierarchy.py` | 可選且尚未實作的設定解析擴充點；若應用需要解析器，須先定義輸入識別、優先序、衝突、授權與版本契約。範本不預設 scope、層級或合併規則，新增應用無須實作此模組。 |
+| `orchestration.py` | `KernelJobHandler` 將背景工作委派給 kernel 使用案例，重新解析有效身份；其他應用協調按需加入，經 ports 注入。此模組未定義固定的多步驟流程。 |
 
 application 管理使用案例、輸入驗證、動作授權、錯誤與完成語意；domain 管理純政策與不變條件。application 不 import API、bootstrap、具體 plugins 或 infrastructure。多個入口應重用使用案例，而非複製規則。
 
-若新增 `Lock → Fetch → Evaluate → Publish`，必須一併定義鎖所有權／續租、資料時間與單位、interceptor 順序、持久結果、重送／冪等、發布失敗補償與 cleanup。只把方法串起來，不構成可交付的可靠性契約。
+若新增多步驟流程，必須依其操作定義資源所有權／續租、輸入有效性、步驟順序、結果保存、重送／冪等、部分失敗補償與 cleanup。只把方法串起來，不構成可交付的可靠性契約。
 
 ### `src/domain/`：Pure Core
 
 | SVG 模組 | 功能規範 |
 | --- | --- |
 | `models.py` | 聚合公開 `Principal`、job／kernel／export 模型；實際定義留在各能力 package，不移到 shared_models 逃避 ownership。 |
-| `strategy.py` | 定義 `SolutionKernel` Protocol；實作位於 plugins 或適當 adapter。其他 strategy／hook 依實際需求增加，沒有預設診斷 hook。 |
+| `strategy.py` | 定義通用可插拔運算契約 `SolutionKernel` Protocol；實作位於 plugins 或適當 adapter。其他 strategy／hook 依實際需求增加。 |
 | `ports.py` | 聚合公開 `IdentityRepository`、`PrincipalAuthenticator`、`ThreadRunner`、`JobDispatcher`、`TaskHandler`、`TaskResolver`、`CapacityCoordinator`、`ExportSource`。只表達需求，不建立連線或選擇技術。 |
 
 domain 可使用標準函式庫、自己的純核心契約及中性的 `shared_models`；不依賴 FastAPI、Pydantic Settings、MongoDB／Redis client、Taskiq、plugins、services、application、infrastructure 或 bootstrap。跨能力資料契約應保持明確、穩定且無副作用；不得靠 domain 轉接至外層實作。
@@ -96,9 +96,9 @@ domain 可使用標準函式庫、自己的純核心契約及中性的 `shared_m
 
 | package／module | 功能規範 |
 | --- | --- |
-| `inference/` | AI／ML 策略實作的擴充位置；目前不內建模型、訓練或推論演算法。 |
-| `heuristics/` | Rule／heuristic 策略實作的擴充位置；目前不內建工廠規則。 |
-| `interceptors/` | 明確契約下的輸入／輸出或評估 hook；不預設 Fab／Tool 客製邏輯。 |
+| `inference/` | 空擴充 package；可放置依 `SolutionKernel` 契約加入的推論實作，目前沒有模型、訓練或推論演算法。 |
+| `heuristics/` | 空擴充 package；可放置依 `SolutionKernel` 契約加入的規則／啟發式實作，目前沒有內建規則。 |
+| `interceptors/` | 空擴充 package；新增 hook 前須定義介面、呼叫順序與錯誤語意，目前沒有共通 interceptor 契約或執行鏈。 |
 
 插件實作 domain strategy，使用 domain 資料型別；application 持有抽象，由 bootstrap 注入實作。需要 DB、HTTP、artifact 或模型服務時，透過窄 port 注入，不在策略內自行建立外部 client。演算法依賴的科學套件需審查其副作用、native threads、授權及部署相容性。import 檢查不提供 sandbox。
 
@@ -118,8 +118,8 @@ domain 可使用標準函式庫、自己的純核心契約及中性的 `shared_m
 | --- | --- |
 | `persistence/` | MongoDB resource、identity repository、export source 等資料 adapter；強制 tenant／owner policy，統一轉換專屬資料型別與錯誤。 |
 | `messaging/` | memory／Taskiq dispatcher、RabbitMQ publisher、Redis job snapshots；實作 domain ports，不決定業務工作流程。 |
-| `locking/` | memory／Redis 容量 lease；owner token、續租與 fencing 是技術協調，不能直接等同設備互斥或 exactly-once。 |
-| `downstream/` | 未來外部 API／結果 egress adapter 的擴充位置；目前沒有通用設備控制或結果發布流程。 |
+| `locking/` | memory／Redis 容量 lease；owner token、續租與 fencing 是技術協調，外部受保護操作仍須驗證 token，lease 本身不提供 exactly-once。 |
+| `downstream/` | 空擴充 package；可放置經明確 port 注入的外部服務 adapter，目前沒有內建外部服務整合或結果發布流程。 |
 | `security.py` | 密碼雜湊與 JWT 等本地身份技術 adapter；金鑰由部署設定注入。 |
 
 adapter 可依 domain ports，不反向依賴 API／application／plugins／bootstrap。跨儲存交易、持久冪等與發布原子性須依使用案例明確設計；Redis TTL 工作快照不等同永久結果或 outbox。
@@ -198,9 +198,9 @@ API 與 worker 各自組裝程序資源；同一部署必須使用相同 handler
 
 ### 背景任務
 
-handler 是 async callable，接收與回傳 JSON object。輸入／結果不得含 client、ORM session、例外、datetime 或不可序列化物件。handler 在 queue 邊界驗證 payload，再委派同一 application use case。namespace 使用 `<capability>.<task_name>`；客戶端不得直接指定任意函式。
+handler 是 async callable，接收與回傳 JSON object。輸入／結果不得含 client、ORM session、例外、datetime 或不可序列化物件。worker 解碼任務 envelope 並依已註冊名稱查找 handler；這不等於已驗證應用 payload。新增 handler 必須定義自身 payload schema 並完成語意驗證，再委派同一 application use case。namespace 使用 `<capability>.<task_name>`；客戶端不得直接指定任意函式。
 
-受保護工作攜帶已驗證的 tenant／owner 識別，worker 在執行時重新取得有效身份與權限；訊息中不放 JWT、密碼或其他可重複使用的秘密。handler 可能重送，具有外部副作用時必須定義持久冪等識別。快照 TTL、terminal-state 去重與先寫終態再 ack，不提供跨 Redis／RabbitMQ 原子交易或永久 exactly-once。
+受保護工作攜帶已驗證的 tenant／owner 識別，worker 在執行時重新取得有效身份與權限；`tenant_id` 表示身份與資料隔離範圍，不自動對應任何應用實體，應用識別需另訂模型與授權映射。訊息中不放 JWT、密碼或其他可重複使用的秘密。handler 可能重送，具有外部副作用時必須定義持久冪等識別。快照 TTL、terminal-state 去重與先寫終態再 ack，不提供跨 Redis／RabbitMQ 原子交易或永久 exactly-once。
 
 handler 不吞掉 `asyncio.CancelledError`。阻塞 I/O 使用有界 thread runner；長時間 CPU／GPU 或需要強制終止的工作，依需求移至專用 process／remote adapter。取消 caller 不能強制停止已執行的 Python thread。
 
@@ -217,6 +217,8 @@ kernel 執行由 application 進行動作授權、版本比對、輸入／輸出
 共通 export 使用案例負責權限、欄位白名單、秘密欄位防護、CSV formula 防護、CSV／JSONL 與筆數限制。串流中途失敗可能留下不完整下載，客戶端必須丟棄該檔案；本版沒有永久匯出工件或 durable export job 服務。
 
 ## 新增一項應用的順序
+
+實作步驟與範例見 [業務團隊開發手冊](developer-guide.md)；本規範定義分層與契約，操作手冊補足跨團隊接入流程。
 
 1. 在 `src/domain/<capability>/` 定義模型、錯誤、政策與所需 ports；界定契約版本及資料 ownership。
 2. 在 `src/application/<capability>/` 實作使用案例；只依 domain 契約，將身份、timeout、重送／冪等與完成語意寫清楚。
@@ -238,4 +240,4 @@ mypy src bootstrap server.py worker.py manage.py
 pytest
 ```
 
-以上是本地檢查入口；完整已執行證據與未執行項目以 [驗證紀錄](validation.md) 為準。部署驗收仍需真實 broker／DB、程序數、資源配額、故障恢復與 factory-specific 使用案例測試；單元測試通過不代表已取得生產核准。
+以上是本地檢查入口；完整已執行證據與未執行項目以 [驗證紀錄](validation.md) 為準。部署驗收仍需真實 broker／DB、程序數、資源配額、故障恢復與新增應用的使用案例測試；單元測試通過不代表已取得生產核准。

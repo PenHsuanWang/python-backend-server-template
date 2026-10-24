@@ -2,7 +2,7 @@
 
 | 文件控制 | 內容 |
 | --- | --- |
-| 文件編號／版本 | PBP-SAD-001／1.1 |
+| 文件編號／版本 | PBP-SAD-001／1.2 |
 | 基線日期／驗證更新 | 2026-10-23／2026-10-24 |
 | 狀態 | 工程交付基線；組織架構、安全與生產驗收仍待指定責任人審查 |
 | 適用對象 | 系統架構、Backend、Solution／Data Science、Platform／IT、測試與維運團隊 |
@@ -10,15 +10,15 @@
 | 參考資料 | 使用者提供的 [SVG 與設計原稿](references/README.md)，採納紀錄見 [design-review.md](design-review.md) |
 | 配套規範 | [模組規範](module-spec.md)、[產品與部署](product-platform.md)、[ADRs](adr/README.md)、[驗證紀錄](validation.md) |
 
-此文件描述**目前可核對的實作及明確標示的擴充契約**，不是已完成廠內生產認證的聲明。程式與測試是行為證據；規格不一致時必須修訂程式或文件並重新驗證，不能只改圖。版本號是文件版本，獨立於 Python package 的 `0.1.0`。
+此文件描述**目前可核對的實作及明確標示的擴充契約**，不是已完成目標環境生產驗收的聲明。程式與測試是行為證據；規格不一致時必須修訂程式或文件並重新驗證，不能只改圖。版本號是文件版本，獨立於 Python package 的 `0.1.0`。
 
 ## 1. 目的、範圍與品質目標
 
 本版依使用者指定 SVG 重構實體 package 與功能責任，保留既有 HTTP／任務行為；舊 Python import 路徑為有意的破壞性變更，見 [搬移對照](package-migration.md)。
 
-本平台作為廠內自動化生產系統的上層協調、決策與資料服務基礎，讓各工廠應用沿用共用 runtime、安全與技術能力。設備控制層負責實際動作、硬即時控制與安全連鎖；本平台不提供此類保證。
+本平台是可依不同產品需求擴充的通用 Python Backend Server 藍圖。平台處理 runtime、HTTP、安全、任務、資料與運算資源的共用機制；應用模組定義自己的 entity、policy、使用案例、workflow 與外部整合。平台不限定任何產業，也不預先指定應用的參與者、設定階層、流程順序或下游系統。
 
-共用能力包含 FastAPI API、程序 lifespan、async 任務調派、有界執行緒、跨程序資源容量協調、本地使用者與 JWT/session、MongoDB 連線、受控匯出、AI/ML/rule solution kernel 契約。正式業務註冊清單與 plugins 預設空白；無製程、設備、PdM 模型、資料集、業務流程或演算法。
+共用能力包含 FastAPI API、程序 lifespan、async 任務調派、有界執行緒、跨程序資源容量協調、本地使用者與 JWT/session、MongoDB 連線、受控匯出、AI/ML/rule solution kernel 契約。正式業務註冊清單與 plugins 預設空白；沒有預載的產品 entity、資料集、應用流程或演算法。
 
 | 品質目標 | 實作手段 | 可接受證據與界線 |
 | --- | --- | --- |
@@ -28,6 +28,12 @@
 | 權限隔離 | authenticated Principal、permissions、tenant/owner repository policy | 平台政策有測試；每個自訂 adapter 仍需驗證隔離 |
 | 可部署 | 同一程式映像、API/worker 分離、外部服務與設定 | Compose/CI 定義已有；不等同 HA、DR 或 production capacity 已驗證 |
 | 跨團隊合作 | DS 策略、SE adapters、共同 domain contract | 契約版本與行為共同審查，實際人員及簽核由組織指定 |
+
+## 1.1 通用性與術語規範
+
+Application Factory 指 `server.create_app()` 的應用建立函式模式；`create_app()` 建立 ASGI application 與 lifespan 定義，連線 I/O 在各程序的 lifespan 執行。Uvicorn `--factory` 與欄位 `default_factory` 都是軟體建立機制，不以「工廠」作簡稱。完整定義及名稱對照見 [glossary.md](glossary.md)。
+
+`domain/` 同時容納平台共用能力的模型／政策，以及未來應用自己的契約；目錄名稱不表示範本已預載產品業務。平台保留 identity/jobs/exports/kernels 等共用能力與既有 API，應用專屬規則在 capability 子 package 加入，最後由 bootstrap 明確選入。設定階層、策略選擇與多步驟流程皆須由實際需求驅動，不能從參考圖推導為必備功能。
 
 ## 2. 架構視圖與責任
 
@@ -75,7 +81,7 @@ src/
 
 新增能力應在相關層下使用相同 capability 名稱協作，如 `src/domain/<name>/`、`src/application/<name>/`、`src/api/<name>/`。演算法放 plugins，外部整合放 infrastructure；bootstrap 建立物件及注入。`ModuleDefinition` 等名稱保留為 Python 初始化契約，不再代表舊 `backend/modules/<name>/` package。詳細功能規範與可複製骨架見 [module-spec.md](module-spec.md)。
 
-`application/use_cases.py` 是四個既有 Service 與 KernelJobHandler 的公開入口；registry 是 task lookup，orchestration 持有背景 kernel 協調；hierarchy 目前只是明確擴充位置，沒有預設工廠階層或合併政策。domain/models.py、ports.py 公開既有穩定契約，strategy.py 實際定義 SolutionKernel。其餘能力子 package 用於避免單一 models/service 檔過大，不改變頂層責任。
+`application/use_cases.py` 是四個既有 Service 與 KernelJobHandler 的公開入口；registry 是 task lookup，orchestration 持有背景 kernel 協調；hierarchy 目前只是可選的設定解析擴充位置，沒有預設 scope、繼承階層或合併政策。domain/models.py、ports.py 公開既有穩定契約，strategy.py 實際定義 SolutionKernel。其餘能力子 package 用於避免單一 models/service 檔過大，不改變頂層責任。
 
 ### 2.2 依賴政策
 
@@ -153,7 +159,7 @@ flowchart LR
 | Taskiq workers | 背景 async 任務，各程序有限並行 | handler 直接呼叫 application，不經 API HTTP；純 Python CPU 工作需明確委派隔離執行 |
 | Process／remote kernel | CPU/GPU、強制終止或記憶體隔離需求 | 現有契約可接入；平台未內建通用 process pool、GPU scheduler 或模型服務 |
 
-生產設定要求 distributed 任務。memory 僅單 API 程序，重啟可遺失工作。建議從 `python server.py --workers N` 啟動，由 CLI 將驗證過的覆寫傳給 child；直接使用 Uvicorn CLI 時需自行維持 `APP_WORKERS`、distributed 等設定一致，factory 不能可靠檢查外部 CLI worker 數。reload 與多 worker 互斥。
+生產設定要求 distributed 任務。memory 僅單 API 程序，重啟可遺失工作。建議從 `python server.py --workers N` 啟動，由 CLI 將驗證過的覆寫傳給 child；直接使用 Uvicorn CLI 時需自行維持 `APP_WORKERS`、distributed 等設定一致，Application Factory 不能可靠檢查外部 CLI worker 數。reload 與多 worker 互斥。
 
 容量估算至少涵蓋 API/worker 程序總數 × Mongo pool（預設每程序 20）、thread 數、Taskiq async concurrency、HTTP pool、模型常駐記憶體、BLAS/native thread 與 GPU 配額。不能將預設值當成核准產能。大型模型宜由專用 worker/remote adapter 持有，API 可注入輕量 proxy 或 descriptor；尚無現成 remote model server。
 
@@ -173,6 +179,8 @@ flowchart LR
 | `POST /kernels/{name}/runs`（同前綴） | kernel.execute | 驗證後提交 owned job，202＋Location；後續 job 查詢另需 jobs.read |
 | `GET /api/v1/exports/sources`、`/exports/{name}` | exports API＋identity、data.read/export | 註冊來源、CSV/JSONL、limit 1..10000 |
 | `/api/v1/<module_name>/...` | manifest router | identity 啟用時預設 JWT；匿名須 manifest 明確選入，使用案例仍需 permission |
+
+任務入口與 queue envelope 是不同邊界：worker adapter 解碼 envelope 並查找已註冊 handler；各 handler／use case 必須定義自己的 payload schema、語意與權限檢查。`TaskRequest` 的型別註記不提供通用 runtime schema 驗證，kernel 的 JSON／版本／容量檢查也不取代應用輸入契約。
 
 目前無任意 task name 提交 API；應用自行提供具型別的業務入口。router 只做 transport validation、取得已注入 service、呼叫 application 與映射 HTTP。Domain 不拋 FastAPI HTTPException。已處理的錯誤由共用 handler 包裝為 `{"error":{"code":"...","message":"..."},"request_id":"..."}` 並提供 X-Request-ID，不向客戶端洩漏原始 SDK 例外或秘密；串流 headers 送出後的失敗無法再改寫成此 JSON 回應。
 
@@ -197,7 +205,7 @@ flowchart LR
 
 每次受保護請求重新查 Mongo session/user，使用目前 active/permissions；登出撤銷當前 session。停權後重新啟用時，未過期且未撤銷的舊 session 可再使用。權限是請求／背景執行開始時的快照，不會持續中止已在執行中的工作。背景 kernel 不帶可重用 JWT，執行前以 tenant/user 重新授權。
 
-`tenant_id` 是授權邊界，**不自動等同工廠、Fab、Tool 或設定階層**。資料隔離必須在 repository 強制 tenant，必要時 owner；HTTP 傳入 tenant/filter 不可信。自訂模組查詢需自己的 policy 與契約測試。
+`tenant_id` 是授權與資料隔離邊界，**不隱含任何產品 entity、應用識別或設定繼承關係**。資料隔離必須在 repository 強制 tenant，必要時 owner；HTTP 傳入 tenant/filter 不可信。自訂模組查詢需自己的 policy 與契約測試。
 
 前端 client 只向同源請求附 Bearer，token 留在記憶體，401 時清除；沒有完整 UI、refresh token、SSO、MFA、密碼復原、角色繼承或 ABAC。HTTPS、CORS/CSP、API gateway、secret rotation 與網路隔離由部署設計明訂。JWT/session 設計有狀態，Mongo 不可用時受保護操作不能保證可用。
 
@@ -250,11 +258,11 @@ kernel timeout 從等待 capacity lease 前開始計算，涵蓋等待與執行�
 
 Memory 使用程序內限制；Redis 以 queue namespace＋resource group 建立容量鍵，使用 Lua 原子取得、Redis time、唯一 owner、TTL、heartbeat 與 fencing counter，釋放只刪本 owner。參與同一共享資源的程序必須使用相同 Redis、queue namespace、group 與容量設定；平台尚未自動偵測不同程序的容量配置不一致。
 
-lease 失效會取消 cooperative async 執行並回錯；thread/remote 副作用可能繼續。fencing token 必須由受保護 adapter/外部系統驗證，不能只記在 log。Redis failover、資料遺失與 counter 回退的安全性未由本平台保證；此實作不是 Redlock，也不是設備業務互斥協定。[Redis distributed lock 的故障模型說明](https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/)
+lease 失效會取消 cooperative async 執行並回錯；thread/remote 副作用可能繼續。fencing token 必須由受保護 adapter/外部系統驗證，不能只記在 log。Redis failover、資料遺失與 counter 回退的安全性未由本平台保證；此實作不是 Redlock，也不是應用資源的業務互斥協定。[Redis distributed lock 的故障模型說明](https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/)
 
 ### 8.2 未來應用的契約
 
-若採用原稿的階層設定與 pipeline，應在具體 module 明訂 configuration version/merge/conflict、領域策略、可選 interceptor 的順序與不變性、資料取得 provenance、repo/lock/publisher 的 timeout/error/idempotency、部分成功的補償與發送結果。框架不提前指定 Lock→Fetch→Evaluate→Publish 為所有產品流程。
+應用若需要設定解析或多步驟 workflow，須在自己的 module 定義 scope、precedence、merge/conflict、configuration version、資料 schema、策略選擇、可選 hook 順序、資料 provenance、timeout/error/idempotency、交易或補償與結果交付契約。只有實際需求成立時才新增 resolver、port 或流程；平台不提供預設步驟，也不把空擴充位置當作已完成的通用功能。
 
 ## 9. 儲存與資料匯出
 
@@ -276,7 +284,7 @@ MongoExportSource 查詢固定 tenant；沒有 data.read_all 時固定 owner。�
 
 readiness 在 3 秒內檢查本程序 dispatcher 與已啟用 Mongo/coordinator；失敗 503。liveness 僅表示 HTTP process 可回應。沒有獨立 worker readiness/heartbeat，不能從 API ready 推論有 worker 消費、模型可用或下游可完成工作。
 
-JSON logger 管理 `src` 與 `bootstrap` 兩個 application roots；JSON log 包含時間、level、logger、request ID、process ID；HTTP middleware 驗證/產生 X-Request-ID，kernel 記錄版本、actor/tenant、結果與時間，不寫 model input/output。沒有 metrics/tracing exporters、不可變 audit ledger 或所有通用 task 的自動 correlation context。需要完整端到端追蹤時，另訂版本化 job context 與敏感資料規範。
+API lifespan 目前呼叫 logging initializer，管理 `src` 與 `bootstrap` 兩個 application logger roots；worker startup 尚未初始化相同 formatter。JSON log 包含時間、level、logger、request ID、process ID；HTTP middleware 驗證/產生 X-Request-ID，kernel 記錄版本、actor/tenant、結果與時間，不寫 model input/output。沒有 metrics/tracing exporters、不可變 audit ledger 或所有通用 task 的自動 correlation context。需要完整端到端追蹤時，另訂版本化 job context 與敏感資料規範。
 
 ## 11. 部署與維運基線
 
@@ -291,7 +299,7 @@ JSON logger 管理 `src` 與 `bootstrap` 兩個 application roots；JSON log 包
 | Mongo 中斷 | 身份/資料服務不可用；不降級繞過認證 | 恢復受控 DB 連線與備份；migration/資料修復由 owner 管理 |
 | 長工作無法停止 | thread SDK 或 remote operation 可能持續 | SDK timeout；需硬截止時改獨立 process/remote 協定 |
 
-交付物回滾需使用已驗證的相容映像與設定、保留資料 volumes，先停止新提交並處理 in-flight。沒有通用 DB downgrade 或自動 queue schema migration；產品變更前必須定義新舊 payload/契約並存與資料遷移策略。備份恢復、HA、憑證輪替、SLO、RPO/RTO、容量與告警閾值由廠內部署驗收決定。
+交付物回滾需使用已驗證的相容映像與設定、保留資料 volumes，先停止新提交並處理 in-flight。沒有通用 DB downgrade 或自動 queue schema migration；產品變更前必須定義新舊 payload/契約並存與資料遷移策略。備份恢復、HA、憑證輪替、SLO、RPO/RTO、容量與告警閾值由目標環境的部署驗收決定。
 
 ## 12. 實作與驗證可追溯性
 
@@ -307,7 +315,7 @@ JSON logger 管理 `src` 與 `bootstrap` 兩個 application roots；JSON log 包
 | 匯出與空資料源 | exports capability、bootstrap.components.ModuleExports.datasets | test_exports.py，無業務來源 |
 | Kernel 版本與空 registry | kernels capability、bootstrap.components.ModuleExports.kernels | test_kernels.py，只有 tests 技術 fixture |
 | 部署、多 API/worker | compose.yaml、Dockerfile、CI workflow | Dockerfile image 實跑及 validation Compose 真 RabbitMQ 多程序通過；正式 Compose config 通過，詳見 validation |
-| 工廠設定、診斷 domain/pipeline | 尚無，屬未來 module | 不列為已實作／已驗證 |
+| 產品 entity、設定解析與 workflow | 尚無預設；由具體應用按需定義 | 不列為平台已實作／已驗證 |
 | HA/DR、SLO、audit、model governance | 待部署／應用規格 | 待決事項見 ADR 與正式驗收 |
 
 實際測試總數、環境、版本與未執行項目唯一彙整於 [validation.md](validation.md)，避免多份文件各自複製數值而失去同步。CI 已定義不表示遠端執行已通過。

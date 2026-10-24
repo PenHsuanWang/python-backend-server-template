@@ -1,6 +1,6 @@
 """Extension point for application-specific configuration resolution.
 
-No Global/Fab/Tool hierarchy, merge policy, or business configuration store is
-installed. A product must define identifiers, precedence, conflict behavior,
-versioning and authorization before implementing its resolver in this layer.
+No default configuration scopes, inheritance rules, merge policy or configuration
+store are installed. Add a resolver only when an application defines its scopes,
+precedence, conflicts, versioning and authorization requirements.
 """

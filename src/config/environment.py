@@ -1,4 +1,4 @@
-"""Runtime environment names; unrelated to factory/business configuration."""
+"""Runtime environment names; independent of application-specific configuration."""
 
 from typing import Literal, TypeAlias
 

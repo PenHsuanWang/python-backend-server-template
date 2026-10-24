@@ -64,4 +64,4 @@
 - 功能 initializer 在 `bootstrap/wiring.py` 明確登錄；`ModuleDefinition/Context/Exports/Catalog` 保留為初始化 API，移到 `bootstrap.components`。
 - 插件以 `PluginBinding` 明確選入，由 `bootstrap.plugin_loader` 檢查；不按 HTTP import 字串動態載入。
 
-本次沒有新增製程資料或演算法，也沒有提供 queue schema/DB downgrade。新舊部署並存仍需產品驗證 handler/version 相容。原稿及先前設計取捨的歷史見 [references](references/README.md) 與 [ADRs](adr/README.md)。
+本次沒有新增產品資料模型或演算法，也沒有提供 queue schema/DB downgrade。新舊部署並存仍需產品驗證 handler/version 相容。原稿及先前設計取捨的歷史見 [references](references/README.md) 與 [ADRs](adr/README.md)。

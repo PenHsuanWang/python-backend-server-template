@@ -2,25 +2,26 @@
 
 本版採 SVG 實體分層：`bootstrap/` 與 `src/{api,services,application,domain,plugins,infrastructure,config,utils,shared_models}`。新增應用沿各層以相同 capability 名稱協作；詳見 [模組功能規範](module-spec.md)。
 
-此產品由共用平台、依工廠需求加入的應用模組，以及可替換的 solution kernel 組成。共用平台處理上層協調、身份、資料與運算資源；實際製程模型、規則、設備協定與 AI／ML 實作由後續模組定義。
+此範本由共用平台、按需求加入的應用能力，以及可替換的 solution kernel 組成。共用平台處理 runtime、身份、資料權限、任務與運算資源；應用模型、政策、流程及外部整合由新增能力明確定義。`create_app()` 採用 Application Factory Pattern 建構 FastAPI application，詳細術語見 [術語與範圍](glossary.md)。
 
 ## 系統定位
 
 ```mermaid
 flowchart TB
     UI[前端／外部應用] --> API[FastAPI 與身份驗證]
-    API --> App[需求模組 application]
-    App --> Kernel[可替換 solution kernel]
-    App --> Data[資料 ports／MongoDB adapter]
+    API --> App[應用使用案例]
+    App --> Kernel[可插拔運算契約 SolutionKernel]
+    App --> Data[資料 port／MongoDB adapter]
     App --> Jobs[任務調派]
     Jobs --> Worker[獨立 Taskiq worker]
-    Worker --> Kernel
-    Kernel --> Resource[程序內／Redis 資源協調]
-    App --> Gateway[設備控制層 adapter]
-    Gateway --> Control[既有設備控制層：執行與安全]
+    Worker --> App
+    App --> Resource[程序內／Redis 資源協調]
+    App --> Port[可選外部服務 port]
+    Port --> Adapter[infrastructure adapter]
+    Adapter --> External[外部服務]
 ```
 
-平台可產生協調結果與執行意圖，設備層負責設備命令的接受、執行確認、硬即時控制與安全連鎖。設備 gateway 的命令契約、去重、timeout、回覆與失敗恢復由需求模組設計；此範本不內建設備驅動或自動下發製程命令。
+API 與 worker 重用 application 使用案例，經 domain ports 存取外部資源。圖中的外部服務連線是可選擴充關係；新增整合時由應用定義請求／回應、授權、timeout、冪等、失敗恢復與清理契約，再於 infrastructure 實作 adapter 並由 bootstrap 注入。共通平台沒有固定的跨服務執行流程。
 
 | 平台能力 | 初始狀態 | 擴充邊界 |
 | --- | --- | --- |
@@ -30,7 +31,9 @@ flowchart TB
 | 本地身份／JWT | 本機預設關閉；Compose 啟用 | 受控建帳、permission-based 授權 |
 | Kernel 執行 | API 預設關閉；空 registry | 模組提供具版本的 kernel |
 | 資料匯出 | API 預設關閉；空 registry | 模組提供受控 dataset |
-| 應用模組／資料模型 | 空白 | 依工廠需求明確加入 |
+| 應用模組／資料模型 | 空白 | 依應用契約明確加入 |
+
+`src/application/hierarchy.py` 是可選且尚未實作的設定解析擴充點；範本不預設 scope、層級或合併規則，應用不需要依賴此模組。`src/plugins/inference`、`heuristics`、`interceptors` 目前均為空擴充 package；保留目錄不表示已有演算法、hook 契約或執行鏈。
 
 ## 本地使用者與 JWT
 
@@ -92,7 +95,7 @@ MongoDB 使用 PyMongo `AsyncMongoClient`，每個 API／任務程序一個 clie
 
 Async client 留在建立它的 event loop，不能跨 thread／event loop 共用。這項限制見 [MongoDB 官方 PyMongo Async 文件](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/reference/migration/)。
 
-資料 repository 以已驗證 `Principal` 的 tenant 作強制隔離。需要擁有權的資料契約使用 `tenant_id`、`owner_id`；一般使用者只讀自己資料，`data.read_all` 可擴大為同租戶資料，不能移除 tenant 限制。模組依資料契約建立索引、schema 版本與授權測試。
+資料 repository 以已驗證 `Principal` 的 tenant 作強制隔離。需要擁有權的資料契約使用 `tenant_id`、`owner_id`；一般使用者只讀自己資料，`data.read_all` 可擴大為同租戶資料，不能移除 tenant 限制。`tenant_id` 是身份與資料隔離範圍，不自動代表應用實體；新增能力需自行定義應用識別及其授權映射。模組依資料契約建立索引、schema 版本與授權測試。
 
 這個通用過濾機制不是 MongoDB 自動 row-level security。自訂 repository 若跳過平台 policy 仍可能違反隔離，新增 adapter 必須驗證跨租戶、跨擁有者與停權情況。框架不預設應用 collection、資料 schema、seed 或 migration。
 
@@ -112,7 +115,7 @@ Async client 留在建立它的 event loop，不能跨 thread／event loop 共�
 
 ## Solution kernel 與資源
 
-kernel 以具名、具版本契約提供輸入與輸出，執行 context 帶入 trace／tenant 身份與資源 fencing 資訊。模組可實作 AI、ML 或 rule adapter，平台不內建解法或任意模型載入入口。
+`SolutionKernel` 是通用可插拔運算契約，以具名、具版本介面提供輸入與輸出。執行 context 帶入有效 principal、request ID 與資源 fencing token；模組可實作不同運算策略。平台不內建解法或任意模型載入入口。
 
 同一個 kernel namespace 在目前部署固定一個版本，client 必須明確指定版本；實際輸入 schema 與演算法由註冊 kernel 定義。
 
@@ -123,7 +126,7 @@ kernel 以具名、具版本契約提供輸入與輸出，執行 context 帶入 
 | `POST /api/v1/kernels/{name}/runs` | 同一 body／權限，202 回傳背景 job |
 | `GET /api/v1/jobs/{job_id}` | `jobs.read`；tenant／owner 必須相符，`jobs.read_all` 可讀同租戶他人 job |
 
-kernel API 需要 identity，啟用後自動開放受保護的 job 查詢。長工作使用 runs 進入 Taskiq，任務保存 tenant／owner metadata；worker 重新讀取目前的使用者與權限，不將 JWT 放入訊息。不要把 HTTP 連線長度當作工作保存機制。
+kernel API 需要 identity，啟用後自動開放受保護的 job 查詢。長工作使用 runs 進入 Taskiq，任務保存 tenant／owner metadata；worker 重新讀取目前的使用者與權限，不將 JWT 放入訊息。worker 的共通處理只解碼任務 envelope 並查找已註冊 handler；新增 handler 須定義自身 payload schema 與語意驗證，再委派使用案例。不要把 HTTP 連線長度當作工作保存機制。
 
 資源容量由 `APP_RESOURCE_LIMITS` 統一控制，thread pool 另有程序內執行／等待上限：
 
@@ -137,7 +140,7 @@ kernel API 需要 identity，啟用後自動開放受保護的 job 查詢。長�
 
 單程序可用 memory。多個 API worker 且開啟 kernel API 時必須用 Redis；直接啟動 Uvicorn 仍需自行確保設定與實際程序數一致。API 與 worker 共享資源時需使用相同 Redis namespace 與容量。
 
-失去 lease 會回報失效、取消可協作的 async 工作並等待清理；Python 無法強制終止已執行 thread，遠端請求也可能已產生副作用。外部 adapter 需驗證 fencing token，避免舊持有者繼續操作受保護資源。需強隔離的 CPU／GPU 工作使用專用 process／remote kernel，避免每個 API worker 載入一份大型模型。設備安全與硬即時互鎖仍由設備控制層執行。
+失去 lease 會回報失效、取消可協作的 async 工作並等待清理；Python 無法強制終止已執行 thread，遠端請求也可能已產生副作用。外部 adapter 需驗證 fencing token，避免舊持有者繼續操作受保護資源。需強隔離的 CPU／GPU 工作使用專用 process／remote kernel，避免每個 API worker 載入一份大型模型。
 
 kernel timeout 自取得容量 lease 前起算，涵蓋等候與執行；job timeout 只涵蓋 handler，不包含排隊與終態保存。timeout 為協作式限制。bounded thread runner 在取消後仍等待實際函式結束，避免工作尚在執行就釋放資源；阻塞 SDK 必須設定自己的連線／讀取 timeout。無法取消的函式可能讓回應或 shutdown 超過設定時間，這類工作應移到可終止的獨立程序。
 
@@ -173,9 +176,9 @@ Compose 的 MongoDB root 帳號與單節點部署用於本地整合；正式環�
 1. 依 [模組規範](module-spec.md) 建立應用契約與公開 facade。
 2. 選擇資料 schema、permission、tenant／owner 政策與 repository。
 3. 定義 versioned kernel／資料源，決定 HTTP、背景工作、thread 或獨立 process 邊界。
-4. 明確定義設備層 gateway、命令確認與故障恢復，由設備層落實安全要求。
+4. 需要外部整合時，明確定義 port、請求／回應、授權、冪等與故障恢復，再實作 adapter。
 5. 完成資料隔離、授權、冪等、lease 失效、startup 回滾及部署整合驗證。
 
-這些步驟只在需求出現時加入具體模組；通用範本維持沒有製程預設、沒有預載解法與沒有預設應用資料。
+這些步驟只在需求出現時加入具體模組；通用範本維持空白的應用註冊清單、kernel 與資料來源，具體規則留在各應用能力中。
 
 完整的責任分層、API／worker、失敗與驗證對照見 [軟體架構設計規格](software-design.md)。原稿採納與限制見 [架構比對](design-review.md)。
