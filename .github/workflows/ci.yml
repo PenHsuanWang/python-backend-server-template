@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - run: python -m pip install -c requirements.lock -e ".[dev]"
+      - run: python -m ruff check .
+      - run: python -m ruff format --check .
+      - run: python -m mypy src bootstrap scripts server.py worker.py manage.py
+      - run: python scripts/check_boundaries.py
+      - run: python -m pytest -m "not integration" -q
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      rabbitmq:
+        image: rabbitmq:4-management
+        env:
+          RABBITMQ_DEFAULT_USER: backend
+          RABBITMQ_DEFAULT_PASS: ci-backend-password
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+      mongodb:
+        image: mongo:8
+        env:
+          MONGO_INITDB_ROOT_USERNAME: backend
+          MONGO_INITDB_ROOT_PASSWORD: ci-mongo-password
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --username backend --password ci-mongo-password --authenticationDatabase admin --eval 'quit(db.adminCommand({ping: 1}).ok ? 0 : 2)'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      RUN_SYSTEM_INTEGRATION: "1"
+      APP_RABBITMQ_URL: amqp://backend:ci-backend-password@127.0.0.1:5672/
+      APP_REDIS_URL: redis://127.0.0.1:6379/15
+      MONGO_TEST_URI: mongodb://backend:ci-mongo-password@127.0.0.1:27017/?authSource=admin
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - run: python -m pip install -c requirements.lock -e ".[dev]"
+      - run: >-
+          python -m pytest tests/test_system_integration.py tests/test_identity_integration.py -v
+          --basetemp=work/ci-integration
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: integration-logs
+          path: work/ci-integration/**/*.log
+          if-no-files-found: ignore
