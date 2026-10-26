@@ -27,7 +27,7 @@ Python distribution 版本、架構文件版本、HTTP API 版本、kernel imple
 
 每個產品記錄採用的範本 commit／tag，維護平台差異及能力清單。平台修補應提供相容性說明與必要 migration；產品以獨立 PR 合入、解衝突並重跑自己的契約及整合測試。複製範本不會自動收到上游修補。
 
-公開 API／facade／payload 的破壞性變更須與消費者協調；queue 可能殘留舊訊息，不能只升級 API。資料 migration 使用獨立管理入口，記錄向前相容、資料備份、回復或補償流程；多 worker lifespan 不是只執行一次的 migration runner。
+公開 API／facade／payload 的破壞性變更須與消費者協調；跨 process／deployment 的契約依[微服務契約設計與演進指南](docs/microservice-contracts.md)記錄 owner、相容矩陣、契約測試、dual-version rollout 與 EOL。queue 可能殘留舊訊息，不能只升級 API。資料 migration 使用獨立管理入口，記錄向前相容、資料備份、回復或補償流程；多 worker lifespan 不是只執行一次的 migration runner。
 
 Release 前保留建置來源、wheel／image digest、測試及掃描結果。缺陷例外必須列範圍、原因、負責人、期限與補救措施，不能用綠色 workflow 取代未完成的驗收。成品通過 staging 後以同一 digest 推廣；資料回復另訂流程。目標 registry、部署環境與生產權責確認後再建立 CD。
 

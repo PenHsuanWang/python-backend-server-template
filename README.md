@@ -4,6 +4,43 @@
 
 範本採明確分層的 package，應用註冊清單與演算法預設空白，不預設任何產業、產品資料模型、應用流程或演算法。共用能力包含 runtime／lifespan、async 任務調派、MongoDB 連線、本地使用者與 JWT Bearer 驗證、資料權限／匯出契約、kernel 擴充與資源協調。各選用服務需明確啟用。
 
+## 新進開發者：從這裡開始
+
+第一次參與專案時，先閱讀 [團隊協作規範](CONTRIBUTING.md)，再依下方「本機空白啟動」建立環境。建議使用 Python 3.13；最低支援版本為 Python 3.11。Windows 開發環境使用 WSL2 或 Linux 容器。
+
+新增業務 module 時，將它視為一個 `<capability>`，使用相同名稱放進既有分層：
+
+```text
+src/domain/<capability>/                業務模型、規則、錯誤與 ports
+src/application/<capability>/           use cases、流程協調與選用的背景 handlers
+src/api/<capability>/                   FastAPI routers、schemas 與 HTTP error mapping
+src/infrastructure/<adapter_kind>/<capability>.py  DB／外部系統等 outbound adapters
+src/plugins/<inference|heuristics>/<capability>.py 選用：可替換的 AI／ML／rule implementations
+src/config/<capability>.py              選用：能力專屬設定
+bootstrap/<capability>.py               ModuleDefinition、依賴注入與資源 lifespan
+bootstrap/wiring.py                     明確選入並啟用能力
+tests/test_<capability>_*.py            use case、權限、邊界與 adapter 測試
+```
+
+業務規則放在 `domain`，業務流程放在 `application`。不要把業務 application service 放進 `src/services/`；該 package 只承載 lifespan、concurrency、health、observability 等平台 runtime 技術服務。只有可替換的 AI／ML／rule 演算法才放入 `plugins`。
+
+第一次貢獻的最短流程：
+
+1. 從團隊指定的基線建立工作分支。
+2. 建立 `.venv`、安裝 hash-locked 依賴並安裝 pre-commit hook。
+3. 依上述位置加入 capability；在 `bootstrap/<capability>.py` 組裝，最後只在 `bootstrap/wiring.py` 選入。
+4. 將新檔案加入 Git 後執行品質與單元測試：
+
+   ```bash
+   git add <本次變更的檔案>
+   python -m pre_commit run --all-files --show-diff-on-failure
+   python -m pytest -m "not integration" --cov --cov-report=term
+   ```
+
+5. 檢查 `git diff --cached`，確認程式、測試、設定與文件一起更新，再依團隊流程建立 Pull Request。
+
+完整的可複製範例與設計模式見 [業務團隊開發手冊](docs/developer-guide.md)，規範性依賴與 module 契約見 [module 功能規範](docs/module-spec.md)，本機 hooks 與 CI 門檻見 [CI／pre-commit 操作規範](docs/ci-precommit.md)。
+
 ## 名詞與擴充界線
 
 `server.create_app()` 採 **Application Factory Pattern（應用建立函式模式）**：建立 FastAPI application 與 lifespan 定義。`--factory` 是 Uvicorn 呼叫該函式的參數；dataclass／Pydantic 的 `default_factory` 是欄位預設值建立機制。本文不以「工廠」簡稱上述軟體機制，完整定義見 [術語表](docs/glossary.md)。
@@ -11,6 +48,8 @@
 通用平台提供 lifecycle、transport、安全、資料存取與任務執行契約；應用在需要時才加入自己的 domain entity、policy、workflow 與 adapter。`tenant_id` 只表示授權與資料隔離邊界，設定解析與應用識別由產品自行設計。空 package 代表擴充位置，不表示功能已完成。
 
 ## 本機空白啟動
+
+以下命令使用建議的 Python 3.13；使用最低支援版本時，將 `python3.13` 換成 `python3.11`。
 
 ```bash
 python3.13 -m venv .venv
@@ -68,7 +107,7 @@ POST /api/v1/identity/login
 {"tenant_id":"<tenant_id>","username":"<username>","password":"<password>"}
 ```
 
-前端後續請求帶 `Authorization: Bearer <access_token>`。管理員透過受控的 `/identity/register` 建立同租戶使用者；沒有公開 signup。短效 token 預設 900 秒，每次受保護請求重新檢查 session、使用者狀態與目前權限，登出／停權於後續受保護請求生效。第一版不包含 refresh token、SSO、MFA 或完整角色引擎。
+前端後續請求帶 `Authorization: Bearer <access_token>`。管理員透過受控的 `/api/v1/identity/register` 建立同租戶使用者；沒有公開 signup。短效 token 預設 900 秒，每次受保護請求重新檢查 session、使用者狀態與目前權限，登出／停權於後續受保護請求生效。第一版不包含 refresh token、SSO、MFA 或完整角色引擎。
 
 前端可直接整合 [同源 TypeScript JWT client](frontend/auth-client.ts)，token 只留在記憶體，401 時清除，重新整理後重新登入。更多部署、權限、MongoDB 與 kernel 限制見 [產品平台說明](docs/product-platform.md)。
 
@@ -162,6 +201,10 @@ CI 定義位於 `.github/workflows/ci.yml`；本次實際驗證與未執行項�
 ## 設計交付文件
 
 不同團隊新增 application 的操作手冊見 [developer-guide.md](docs/developer-guide.md)，包含檔案落點、設計模式、可複製範例、權限與接入驗證。
+
+使用本專案衍生 ML Training／Model Serving 系統，請閱讀 [ML System 開發方向與架構設計](docs/ml-system-design.md)。文件定義模組落點、持久工作、MLflow、模型核准與部署、可靠性、開發里程碑及驗收；ML 能力為待實作設計，不改變目前空白啟動基線。
+
+能力需要跨 process／deployment boundary 時，依[微服務契約設計與演進指南](docs/microservice-contracts.md)定義資料 ownership、同步／非同步 wire contract、版本相容、冪等、服務身分、觀測與發布閘門。程序內 `ModuleExports.services` 不等同網路契約。
 
 完整 [軟體架構設計規格](docs/software-design.md) 包含組裝、scope、API／worker、並行、身份／資料、kernel、失敗語意與驗證對照。另附 [原稿比對](docs/design-review.md)、[更新 SVG](docs/diagrams/backend-platform.svg)、[架構決策](docs/adr/README.md) 及逐位元組保存的 [使用者原稿](docs/references/README.md)。目前通用基線為 PBP-SAD-001 v1.3；參考原稿只保留設計來源，不構成應用場景、實作狀態或未來必備功能的規範。
 
