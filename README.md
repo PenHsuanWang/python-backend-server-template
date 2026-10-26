@@ -204,6 +204,8 @@ CI 定義位於 `.github/workflows/ci.yml`；本次實際驗證與未執行項�
 
 使用本專案衍生 ML Training／Model Serving 系統，請閱讀 [ML System 開發方向與架構設計](docs/ml-system-design.md)。文件定義模組落點、持久工作、MLflow、模型核准與部署、可靠性、開發里程碑及驗收；ML 能力為待實作設計，不改變目前空白啟動基線。
 
+ML 設計 v0.2 附 [C4 L1～L4 圖集](docs/diagrams/ml-system-v0.2/README.md)、[DeploymentSpec 交付契約](docs/contracts/ml-deployment-v1/README.md)、[Runtime 相容矩陣](docs/ml-runtime-compatibility.md)及[程式基線符合性審查](docs/ml-system-compliance-review.md)，區分設計契約與實際驗證結果。
+
 能力需要跨 process／deployment boundary 時，依[微服務契約設計與演進指南](docs/microservice-contracts.md)定義資料 ownership、同步／非同步 wire contract、版本相容、冪等、服務身分、觀測與發布閘門。程序內 `ModuleExports.services` 不等同網路契約。
 
 完整 [軟體架構設計規格](docs/software-design.md) 包含組裝、scope、API／worker、並行、身份／資料、kernel、失敗語意與驗證對照。另附 [原稿比對](docs/design-review.md)、[更新 SVG](docs/diagrams/backend-platform.svg)、[架構決策](docs/adr/README.md) 及逐位元組保存的 [使用者原稿](docs/references/README.md)。目前通用基線為 PBP-SAD-001 v1.3；參考原稿只保留設計來源，不構成應用場景、實作狀態或未來必備功能的規範。
