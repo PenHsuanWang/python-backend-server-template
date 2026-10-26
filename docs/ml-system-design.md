@@ -2,14 +2,16 @@
 
 | 文件控制 | 內容 |
 | --- | --- |
-| 文件編號／版本 | ML-SAD-001／0.1 |
-| 日期 | 2026-10-26，Asia/Taipei |
+| 文件編號／版本 | ML-SAD-001／0.2 |
+| 日期 | 初稿 2026-10-26；v0.2 修訂 2026-10-27，Asia/Taipei |
 | 狀態 | 開發設計提案；本文件未新增 ML 功能、依賴、資料表或部署服務 |
 | 適用對象 | 架構、Backend、Data Science、Data Engineering、Platform、測試與維運團隊 |
 | 程式參照基線 | `08490e84cc88d2ff7300cb97fd23e93ea0e33a1a`；依現有原始碼核對，文件提案不構成新版本執行驗證快照 |
 | 平台設計基線 | [PBP-SAD-001 v1.3](software-design.md)、[模組規範](module-spec.md)、[DG-001 v1.1](developer-guide.md) |
 | 文件目的 | 指引如何由本專案衍生 ML System，定義責任、契約、生命週期、實作順序與驗收條件 |
 | 實作與驗證狀態 | 既有平台結果見 [validation.md](validation.md)；本文件中的 ML API、設定、檔案與驗收案例均為待實作設計 |
+| v0.2 補強 | 正式 Port Ownership、ACK Execution Contract、DeploymentSpec Delivery、Evaluator 邊界與版本化 C4 附件 |
+| 本輪符合性核對 | [基線符合性審查](ml-system-compliance-review.md)區分實測平台能力、設計要求與尚未實作的 ML 契約 |
 
 「必須」表示採用本設計後的契約要求；「建議」表示有明確替代方案的預設選擇；「後續」表示有需求時才導入。文件版本與 Python distribution、HTTP API、訊息、模型及部署版本分別管理。本文件不取代通用平台規範，也不宣稱 ML 系統已完成生產驗收。
 
@@ -103,6 +105,10 @@ Production 的判定依據是契約、權限、SLO、容量與故障復原驗收
 | ML-D10 | 角色專用依賴與映像 | API、training、serving、MLflow 不共用完整 ML 安裝集合 |
 | ML-D11 | 先保留 MongoDB identity | 降低第一版平台變動；接受多一個儲存服務的維運成本 |
 | ML-D12 | 各邊界使用明確、版本化 DTO | SDK、DataFrame、NumPy／Tensor 不穿透到純 Application／Domain |
+| ML-D13 | Application 擁有 workflow ports | 新 ML port 歸消費它的 use case；adapter 以 structural typing 配合，維持 infrastructure 不 import application |
+| ML-D14 | Evaluator 與 Trainer 分開 | 評估策略可替換、可重新評估固定模型，不新增獨立 evaluation container |
+| ML-D15 | ACK 需 application evidence gate | `when_saved` 不代表 App DB commit；兩種 execution mode 各有正式允許 ACK 的證據 |
+| ML-D16 | Spec 以不可變交付物啟動 runtime | Controller 發布固定 JSON 與預期 digest；Serving 不自行選 latest／alias，readiness 與 routing 分別對帳 |
 
 若改用 MongoDB 保存 TrainingJob，也必須提供同等的原子寫入、唯一約束、claim 與 Outbox 保證。既有 Compose 是 standalone MongoDB；不能直接假設跨 collection 交易可用，多文件交易的部署要求見 [MongoDB Transactions](https://www.mongodb.com/docs/manual/core/transactions/)。
 
@@ -121,7 +127,7 @@ flowchart TB
     AppDB --> Relay["Outbox Relay"]
     Relay --> Broker["RabbitMQ"]
     Broker --> Worker["Taskiq Training Supervisor"]
-    Worker --> Executor["Training Process / Container"]
+    Worker --> Executor["Training Runner: Trainer + Evaluator"]
     Worker --> AppDB
     Reconciler["Reconciler / Deployment Controller"] --> AppDB
     Reconciler --> Executor
@@ -138,6 +144,8 @@ flowchart TB
 
 MLflow 的 backend store 保存實驗與模型 metadata，artifact store 保存大型檔案；MLflow 不會取代應用工作資料庫。[MLflow Backend Stores](https://mlflow.org/docs/latest/self-hosting/architecture/backend-store/)
 
+正式 C4 L1～L4 附件與編號、範圍、圖文追溯見 [v0.2 圖集](diagrams/ml-system-v0.2/README.md)。§4.1 是支援理解的動態資料流，不能取代 C4 的靜態系統／container／component／code 邊界。Repository 未包含審查提及的四張舊 C4 SVG；本輪新增圖集是依 v0.2 重新繪製的目標設計，不宣稱逐圖比對原件。
+
 ### 4.2 部署角色
 
 | 角色 | 必要資源與責任 | 不應載入的資源 |
@@ -145,7 +153,7 @@ MLflow 的 backend store 保存實驗與模型 metadata，artifact store 保存�
 | management API | 身份、ML DB、提交／查詢／核准、registry metadata client | 訓練模型與 GPU context |
 | outbox relay | ML DB、broker publisher、有限批次與 backoff | 訓練 framework、模型 |
 | training supervisor | domain claim、executor、工作 heartbeat、結果收斂 | 線上 Serving 模型快取 |
-| training process | 固定 recipe、資料快照、Trainer、tracking／artifact client | FastAPI runtime 與管理 API server |
+| training process | 固定 recipe、資料快照、Trainer、Evaluator、quality policy、tracking／artifact client | FastAPI runtime 與管理 API server |
 | reconciler | 過期 ownership、外部 execution、MLflow 對帳、狀態收斂 | 未經核准的重新訓練／自動 promotion |
 | deployment controller | 固定 deployment spec、程序／容器發佈及 observed state | 任意使用者傳入的命令 |
 | prediction serving | 指定 deployment、驗證器、已載入模型、受保護 HTTP | broker consumer、training pipeline、promotion 寫入權限 |
@@ -179,17 +187,19 @@ MLflow 的 backend store 保存實驗與模型 metadata，artifact store 保存�
 ```text
 src/
   domain/
-    datasets/              models.py, ports.py, policy.py, errors.py
-    training/              models.py, ports.py, policy.py, errors.py
-    model_registry/        models.py, ports.py, policy.py, errors.py
-    deployments/           models.py, ports.py, policy.py, errors.py
-    prediction/            models.py, ports.py, policy.py, errors.py
+    datasets/              models.py, policy.py, errors.py
+    training/              models.py, policy.py, errors.py
+    evaluation/            models.py, policy.py, errors.py
+    model_registry/        models.py, policy.py, errors.py
+    deployments/           models.py, policy.py, errors.py
+    prediction/            models.py, policy.py, errors.py
   application/
-    datasets/              service.py, facade.py
-    training/              service.py, tasks.py, reconciliation.py, facade.py
-    model_registry/        service.py, reconciliation.py, facade.py
-    deployments/           service.py, reconciliation.py, facade.py
-    prediction/            service.py, facade.py
+    datasets/              ports.py, service.py, facade.py
+    training/              ports.py, service.py, tasks.py, reconciliation.py, facade.py
+    evaluation/            ports.py, service.py, facade.py（第一版內部能力）
+    model_registry/        ports.py, service.py, reconciliation.py, facade.py
+    deployments/           ports.py, service.py, reconciliation.py, facade.py
+    prediction/            ports.py, service.py, loading.py, facade.py
   api/
     datasets/              routers.py, schemas.py, dependencies.py, errors.py
     training/              routers.py, schemas.py, dependencies.py, errors.py
@@ -202,15 +212,17 @@ src/
     execution/             local_process.py, kubernetes.py（後續）
     mlflow/                tracking.py, registry.py, artifacts.py
     data_sources/          approved dataset adapters
-    serving/               pyfunc_runtime.py, remote_runtime.py（後續）
-    deployment/            local rollout / container rollout adapters
+    serving/               spec_reader.py, artifact_retriever.py, verifier.py, pyfunc_runtime.py
+    deployment/            spec_publisher.py, container_rollout.py, observations.py
   plugins/
-    heuristics/            versioned sklearn Trainer implementations
+    training/              sklearn_trainers.py（版本化 Trainer）
+    evaluation/            classification.py（版本化 Evaluator）
+    heuristics/            僅放啟發式策略，不放一般 Trainer
     inference/             optional custom inference strategies
   config/
     ml.py                  role-specific ML settings
 bootstrap/
-  datasets.py / training.py / model_registry.py / deployments.py / prediction.py
+  datasets.py / training.py / evaluation.py / model_registry.py / deployments.py / prediction.py
   ml_config.py             assemble platform + ML settings
   ml_wiring.py             explicit role-specific catalogs
   ml_api.py                management Application Factory
@@ -219,7 +231,7 @@ bootstrap/
   ml_control_loop.py       relay / reconciliation process composition
   ml_serving.py            serving Application Factory
 tests/
-  test_training_*.py / test_mlflow_*.py / test_prediction_*.py
+  test_training_*.py / test_evaluation_*.py / test_mlflow_*.py / test_prediction_*.py
   test_deployments_*.py / test_ml_system_integration.py
 ```
 
@@ -227,10 +239,10 @@ tests/
 
 ### 5.2 依賴規則
 
-1. Domain 用 dataclass／Enum／Protocol 定義純模型與政策，不 import Pydantic、MLflow、pandas、sklearn、Taskiq 或 DB SDK。
-2. Application 以窄 port 編排流程；不接收整個 Runtime、Settings 或 ModuleContext。
+1. Domain 用 dataclass／Enum 與純政策定義業務不變條件；初始 ML capabilities 不預設建立 `domain/*/ports.py`。只有 Domain 自己消費的穩定抽象才歸 Domain，不 import Pydantic、MLflow、pandas、sklearn、Taskiq 或 DB SDK。
+2. Application 在所屬 capability 的 `ports.py` 定義 workflow 所需的窄 Protocol；不接收整個 Runtime、Settings 或 ModuleContext。
 3. API 使用 Pydantic 驗證 HTTP，再轉成 domain command；queue handler 也必須驗證自己的 command，不能只依賴 HTTP。
-4. Plugins 實作 `Trainer`／策略；MLflow 記錄及儲存操作由注入的 ports／application 流程處理。
+4. Plugins 以 structural typing 實作 Trainer／Evaluator／策略，不 import application。MLflow 記錄與儲存由 application 使用例及注入 adapter 處理。
 5. Infrastructure 實作外部 I/O，不 import plugins 或 application。需要同時建立 Trainer 與 tracker 的程式放 bootstrap。
 6. Bootstrap 明確選擇實作，不從 HTTP／queue 中的 import path、pickle 路徑或任意程式碼動態選類別。
 7. PostgreSQL、MLflow、Serving SDK 不放入 shared_models，也不藉 re-export 繞過 checker。
@@ -245,7 +257,7 @@ tests/
 
 目前 router 自動掛 `/api/v1/{definition.name}`；第 8 節沿用此規則。若產品要提供 `/api/v1/models` 或 `/api/v1/predict` 別名，需另訂明確掛載規則及相容性測試，不能無意間產生重複 prefix。
 
-建議依賴圖為 datasets → identity、model_registry → identity、training → identity／datasets／model_registry、deployments → identity／model_registry。Prediction 只載入 identity 與固定 DeploymentSpec 所需 ports，不因讀部署描述就組裝完整控制層。Model registry 以 typed origin refs 記錄訓練來源，避免反向 requires training 形成循環；跨能力使用公開 facade／consumer-owned port。
+建議依賴圖為 datasets → identity、evaluation → datasets、model_registry → identity／evaluation、training → identity／datasets／evaluation／model_registry、deployments → identity／model_registry。Prediction 只載入 identity 與固定 DeploymentSpec 所需 ports，不因讀部署描述就組裝完整控制層。Evaluation 接收已解析的 model／dataset refs，不反向 requires training 或 model_registry；registry 以 origin refs 記錄訓練來源，避免循環。
 
 ### 5.4 必要平台接縫與產品程式的區別
 
@@ -257,6 +269,39 @@ tests/
 | 文件與維運 | API、migration、runbook、容量及來源 manifest | 文件與實際命令同步，保留受驗 source／image digest |
 
 目前 lock updater 只產生既有 build／runtime／dev locks，尚不支援本設計的角色 locks；需在同一個受審查流程擴充，不另建未管理的第二套 resolver。
+
+### 5.5 正式 Port Ownership
+
+Port 歸屬由「誰消費這個能力」決定，不由 adapter 使用哪個 SDK 決定。執行、發布、追蹤、載入與工作交易都是 Application workflow 需求；純 TrainingPolicy、QualityPolicy、DeploymentPolicy 留在 Domain，並非外部 I/O port。既有平台的 `domain/jobs/ports.py` 等契約保留原位，本輪不要求遷移舊 API。
+
+| Port | 正式擁有位置 | 消費者 |
+| --- | --- | --- |
+| TrainingUnitOfWork、TrainingJobRepository | `application/training/ports.py` | 提交、claim、狀態收斂使用例 |
+| TrainingCommandPublisher、TrainingExecutor | `application/training/ports.py` | Relay／Training Workflow |
+| Trainer、ExperimentTracker、CommandAckGate | `application/training/ports.py` | 訓練、tracking 及 ACK eligibility 使用例 |
+| DatasetRepository | `application/datasets/ports.py` | 固定資料版本解析 |
+| Evaluator、EvaluationRepository | `application/evaluation/ports.py` | metrics／report 與評估結果保存 |
+| ModelRegistry | `application/model_registry/ports.py` | 版本註冊、查詢及受控 alias |
+| DeploymentRepository、DeploymentExecutor、DeploymentSpecPublisher、RuntimeObservationReader | `application/deployments/ports.py` | spec 發布、rollout、routing 對帳 |
+| DeploymentSpecReader、ModelArtifactRetriever、ArtifactVerifier | `application/prediction/ports.py` | 驗證固定 spec、取得並驗證 artifact |
+| ModelLoader、PredictionRuntimeFactory、PredictionRuntime | `application/prediction/ports.py` | 組裝載入流程、建立已載入 runtime、執行預測 |
+
+表內路徑皆以 `src/` 為根；Domain 持有 ports 使用的公開純 DTO／業務政策，實作不得把 SDK 型別放入 DTO。若未來 Domain Service 本身需要窄抽象，需記錄真正消費者、語意與 ownership 後才能新增 Domain Port，不能只為了 DIP 把接口集中到 Domain。
+
+Infrastructure／Plugins 不繼承也不 import Application Protocol：以相同的參數、回傳 DTO 與錯誤／取消語意提供方法，由 bootstrap 的具型別建構參數或 assignment 觸發 Mypy 結構型別檢查。`isinstance(..., Protocol)` 不能證明完整語意；共同行為測試仍必要。[Python Protocol](https://docs.python.org/3.11/library/typing.html#typing.Protocol)
+
+### 5.6 ML Import Dependency Matrix
+
+| 匯入者 | 可依賴的內層 | 不可依賴 |
+| --- | --- | --- |
+| `domain/<ml capability>` | domain 公開 DTO／policy、shared_models、stdlib | application、plugins、infrastructure、framework／SDK |
+| `application/<ml capability>` | 自己／其他能力的公開 application port／facade、domain、shared_models、utils、stdlib | plugins、infrastructure、config、services、bootstrap、ML SDK |
+| `plugins/training`／`plugins/evaluation` | domain 公開 DTO、utils、shared_models、受審查科學套件 | application、infrastructure、MLflow、broker／DB／HTTP SDK |
+| `infrastructure/<ml adapter>` | domain 公開 DTO、config、shared_models、utils、必要 SDK | application、plugins、API、bootstrap、其他能力私有 repository |
+| `api/<ml capability>` | application 公開服務／DTO、domain、既有 API DI | 直接建立 adapter／Trainer／模型，或新增任意 bootstrap import |
+| `bootstrap/ml_*` | 所需 ports、具體實作與 typed assembly | 業務演算法、根據外部字串選 import |
+
+這是既有 layer matrix 上的 ML 能力政策。現有 checker 尚未把 MLflow 加入 plugin SDK denylist，也不檢查 capability private ownership；WP-10 必須增加對應靜態與反例測試，不能因本表存在就宣告已強制執行。
 
 ## 6. Domain 模型與狀態機
 
@@ -341,6 +386,12 @@ Model binding 將應用 model ID／tenant／scope 映射至 registry 名稱，�
 
 PromotionApproval 綁定確切 model version、artifact digest、evaluation digest、policy version、環境、核准者及有效狀態。任何被核准內容改變都必須重新核准。候選模型可同時有多個；不能用一個可變 `candidate` alias 代替候選清單。
 
+Evaluation 是獨立的程式能力，不是第一版的新 container。Training Workflow 呼叫 EvaluationService；Evaluator 只計算 metrics 與不可變 EvaluationReport，Domain `evaluation/policy.py` 的 QualityPolicy 依固定門檻／baseline 產生 PASS／REJECTED 決策；Model Registry／Promotion 使用該固定 EvaluationResult 判斷可否核准。
+
+Report 必須帶 model artifact digest、dataset／split digest、Evaluator ID／version、metric schema、產生時間與 report digest。Evaluator 不執行 fit、不決定 production alias，也不隱含核准。品質不達標是有效評估結果；程式／資料處理錯誤才是 evaluation ERROR。
+
+對已註冊模型重新評估時，使用相同 EvaluateModel 使用例與新的 report ID，輸入固定 ModelVersionRef 及評估資料版本，不能呼叫 Trainer 重新訓練或覆寫原始報告。第一版可先提供內部 use case／管理入口；長時間重新評估的 Job／API 於需要時沿相同 execution contract 擴充。新報告不自動改變已核准或已部署版本，任何撤銷／重新核准依明確政策處理。
+
 ### 6.6 Endpoint 與 Deployment
 
 Endpoint 保存 tenant、契約、desired generation、desired deployment 與 observed deployment 集合。DeploymentSpec 固定 model ref、artifact digest、runtime image digest、schema、resource profile 與發佈策略；建立後不可改寫成另一模型。
@@ -385,7 +436,7 @@ App DB、RabbitMQ、MLflow 與 S3 不在同一個交易。設計使用 Outbox、
 
 ### 7.3 Port 契約
 
-以下名稱與方法為設計介面，非目前可呼叫 API。一般 I/O port 採 async；CPU Trainer 可為同步介面，由獨立 process 執行。
+以下名稱與方法為設計介面，非目前可呼叫 API。Ownership 以 §5.5 為準；一般 I/O port 採 async，CPU Trainer／Evaluator 可為同步介面，在獨立 process 執行。
 
 | Port | 操作語意 | 回傳與限制 |
 | --- | --- | --- |
@@ -394,13 +445,22 @@ App DB、RabbitMQ、MLflow 與 S3 不在同一個交易。設計使用 Outbox、
 | `DatasetRepository` | resolve authorized immutable version、取出 snapshot descriptor | 不回傳任意 SQL／可執行 import |
 | `TrainingCommandPublisher` | 以固定 command ID 發布版本化命令 | confirm 可不確定；不可自行產生新邏輯 job |
 | `TrainingExecutor` | `start(spec, execution_key)`、`inspect(ref)`、`cancel(ref)` | typed ExecutionRef／Observation；cancel 回應區分 requested 與 confirmed stopped |
-| `Trainer` | 對固定資料與 recipe 訓練，產生模型／報告輸出描述 | framework 物件留在 plugin／runner；跨程序傳 manifest refs |
+| `Trainer` | 固定資料／recipe 的 fit 與訓練輸出描述 | 不產生治理核准；framework 物件留在 plugin／runner，跨程序傳 manifest refs |
+| `Evaluator` | `evaluate(model_ref, dataset_ref, evaluation_spec)` | metrics／report DTO；不 fit、不 promotion、不含 HTTP／MLflow 型別 |
+| `EvaluationRepository` | 保存／讀取固定 report 與 quality decision | 新評估產生新 ID；不覆寫原報告或模型 |
 | `ExperimentTracker` | 建立／對帳 run、明確 run ID 記錄、結束 run | 不使用共享隱含 active run 作為身份 |
 | `ModelRegistry` | register／lookup fixed version、resolve／set managed alias | typed ModelVersionRef；不負責載入 RAM 模型 |
-| `ArtifactVerifier` | 取得並驗證受控 manifest、digest、來源與 runtime contract | digest 只證完整性，來源信任需另有政策 |
+| `CommandAckGate` | 讀取並驗證 `AckEvidence` | 以 App DB 實況決定 eligibility；兩種 execution mode 見 §13.3 |
+| `DeploymentSpecPublisher` | 發布不可變 JSON、digest、launch descriptor | §11.5 規範的受控交付；不接受 shell 字串 |
+| `DeploymentSpecReader` | 一次性讀取、驗 schema／digest／expected identity | 不選 alias、不呼叫 registry 決定新版本 |
+| `ModelArtifactRetriever` | 下載固定 artifact 至受控 staging root | 只負責取得 bytes／manifest，不反序列化模型 |
+| `ArtifactVerifier` | 驗證完整 manifest、digest、來源、schema／runtime contract | 回傳 VerifiedArtifacts；失敗不啟動模型載入 |
 | `DeploymentRepository` | desired spec、條件式 revision、observations | 不以 alias 取代 endpoint state |
 | `DeploymentExecutor` | prepare／activate／inspect／retire | 第一期可為明確操作的受控本機／容器 adapter；不接受 shell 字串 |
-| `PredictionRuntime` | load pinned descriptor、warm-up、predict、close | domain input／output DTO；framework 型別在 adapter 內轉換 |
+| `RuntimeObservationReader` | 取得 authenticated instance observation 與實際 routing snapshot | 與 desired generation 比較；HTTP 200／pod Ready 本身不夠 |
+| `ModelLoader` | `load(spec) -> PredictionRuntime` | 依序 retrieve → verify → runtime factory → warm-up；成功才交付 handle |
+| `PredictionRuntimeFactory` | 從 VerifiedArtifacts 與固定 spec 建立 runtime | framework load／device 初始化；失敗清理 native resource |
+| `PredictionRuntime` | loaded descriptor、predict、close | 已載入模型；不下載、不選版，framework 型別在 adapter 內轉換 |
 
 不把所有操作合併成回傳 `Any` 的 ModelRepository。Port 所需的期限、取消與錯誤分類必須在契約測試中固定；實作不得悄悄吞掉 cancellation。
 
@@ -594,6 +654,10 @@ Kubernetes 等外部 execution 可在提交並保存穩定 execution ref 後 ack
 
 `start(spec, execution_key)` 必須能以相同 key 查得同一外部執行，或提供明確對帳方式。若外部啟動不確定，先 inspect，不建立第二個 execution。模式切換需更新 ack、shutdown 與故障測試，不能只替換 CLI。
 
+### 9.6 ACK 是獨立的 Execution Adapter Contract
+
+TrainingSpec 固定 `execution_mode`：`supervised_local` 或 `external_submitted`。命令 publisher、worker 與 reconciler 必須同意該模式；不得依 handler 是否已 return 猜測訓練完成。§13.3 是正式 eligibility 規範，WP-03／04 與 external executor adapter 都必須通過相應 receiver／App DB 整合測試。
+
 ## 10. MLflow、資料與訓練配方
 
 ### 10.1 Tracking 與 Model Registry adapter
@@ -613,6 +677,8 @@ Dataset adapter 取得已授權的固定 snapshot，檢查 digest／schema／lab
 模型比較使用固定、可追溯的 evaluation dataset 與 policy；保留真正 held-out 測試的用途，避免反覆調參洩漏。亂數 seed、軟硬體與依賴紀錄提高可重現性，但不保證所有 GPU／平行演算法逐位元相同。[scikit-learn 常見問題](https://scikit-learn.org/stable/common_pitfalls)
 
 Feature Store 只有在實際需要線上／離線一致特徵與 point-in-time 查詢時導入；第一版先固定 snapshot、feature schema 與 pipeline。
+
+Training Workflow 在 fit 後呼叫獨立 Evaluator，將 metrics／report 交給 QualityPolicy，再保存固定 EvaluationResult；Model Registry／Promotion 只消費該結果，不重算或猜測品質。Evaluator plugin 放 `plugins/evaluation`，其 Protocol 放 `application/evaluation/ports.py`；一般 Trainer 放 `plugins/training`，`plugins/heuristics` 保留啟發式策略。這些子 package 仍位於既有 `plugins` 層內，並非新增頂層 layer。
 
 ### 10.3 Artifact、格式與環境
 
@@ -663,11 +729,47 @@ Rollback 使用先前核准的固定模型、runtime image 與 schema，建立�
 
 保留 active、可回滾與核准中的 artifact／image。清理程序先檢查所有 tenant／endpoint 參照與保留政策，再刪除未引用資料。刪除核准或 model version 不應讓現行部署失去所需物件。
 
+### 11.5 DeploymentSpec Delivery Contract v1
+
+#### 11.5.1 Owner、格式與版本
+
+Controller 是唯一 spec 發布 owner，Serving 是唯讀 consumer。Wire schema 為 `ml.deployment-spec/v1`；schema、launch／observation 範例及語意規範見 [交付契約附件](contracts/ml-deployment-v1/README.md)。Python dataclass 不直接等同 wire schema。
+
+Spec 固定 tenant、endpoint／deployment／generation、ModelVersionRef、artifact manifest digest、input／output schema digest、approval digest、resource profile、compatibility ID、OCI image ref／digest。第一版正式 rollout 使用 digest-pinned container；直接 Python process 僅作開發測試，不在無法觀察 image identity 時宣稱該檢查已通過。
+
+`spec_digest` 是完整 spec 依 RFC 8785 JCS canonical UTF-8 計算的 SHA-256，放在受信任 launch descriptor，排除自我參照。Artifact digest、spec digest 與 image digest 識別不同物件，不可互換。[RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)
+
+#### 11.5.2 發布與交付
+
+1. DB 保存固定 deployment／generation／approval、spec digest 與發布意圖。
+2. `DeploymentSpecPublisher` 以 exclusive create／atomic publish 將 canonical JSON 發布至受控 `{deployment_id}/{digest}.json`；同 digest 已存在只接受相同內容，不覆寫舊路徑。
+3. Runtime 取得唯讀掛載及 Controller 管理的 expected digest／ID／generation，必要 workload credential 另行交付，spec 不含 secret。
+4. Controller 以固定 image／entrypoint 啟動，保存 instance／launch ref，從可信平台觀察實際 image digest；runtime 自報 spec 裡的 image 不算證據。
+5. Runtime 回報綁定此次 boot／instance 的 observation，Controller 驗證後才啟動 routing activation。
+
+檔案權限與 read-only mount 必須配置；若兩角色共用 UID 且可改檔，不能宣稱形成對抗性安全邊界。跨信任域用受驗簽章／控制面 attestation 補足來源信任。Kubernetes 可用固定版本的 immutable ConfigMap／artifact mount，但保留同一 wire／digest 契約，不改成 latest alias。
+
+發布／啟動 crash 後以 deployment／digest／launch ref 對帳，限制重複 replica。檔案缺失、schema 不相容、超大檔、重複 JSON key、非法 URI、digest／identity 不符皆 fail closed，不 fallback。
+
+#### 11.5.3 Runtime Validation 與 Observation
+
+`ML_DEPLOYMENT_SPEC_PATH` 只是輸入位置。Expected digest／endpoint／deployment／generation 來自受信任 launch config；runtime 一次性讀有界檔案，驗 schema／digest／identity，才取得、驗證、載入 artifact 並 warm-up。
+
+Report 包含 observation version、instance／boot ID、endpoint／deployment／generation、spec digest、實際 model version／artifact／schema digest、compatibility ID、opaque model handle ID、warm-up outcome、單調 sequence 與時間。Handle ID 不暴露記憶體位址。
+
+Observation 走具服務身份的 status channel 或受控 supervisor channel；public health JSON 不能冒充。Report 必須新鮮並綁定目前 boot identity，過期／重播／錯 generation 或 unready observation 不得取得流量。
+
+#### 11.5.4 Routing Activation
+
+Controller 比對 desired generation、launch、report 與平台 image identity，依 rollout 策略選 eligible replicas；切流後讀實際 routing revision／backend 集合並做版本 provenance probe，一致才記 ACTIVE。
+
+「新 replica Ready、路由仍舊版」、「路由已切、回應仍是舊 handle」及「過期 controller 晚到切流」都屬未收斂，不能因 HTTP 200 就標 ACTIVE。保留健康舊路由或用新 generation rollback，保存 desired／observed 差異。ML-T31～33／39 在 WP-08／09 退出前須通過。
+
 ## 12. Serving runtime 與推論執行
 
 ### 12.1 啟動與快取
 
-Serving 啟動讀固定 DeploymentSpec，先下載到受控暫存位置、驗證，再載入並 warm-up。成功後發布不可變 model handle；直到 close 都保留自己的實際版本。第一版每個程序固定一個 endpoint／版本，避免先做無界多模型 cache。
+Serving 依 §11.5 讀取 Controller 發布的固定 DeploymentSpec，先驗 spec／launch identity，再由 ModelLoader 取得、驗證 artifact、載入及 warm-up。成功後發布不可變 model handle 與 instance observation，直到 close 都保留實際版本。第一版每個程序固定一個 endpoint／版本。
 
 模型載入適合在 lifespan 管理；多 Uvicorn process 通常各自持有模型記憶體，需以實際 RSS／VRAM 量測 replicas 與 workers。[FastAPI Lifespan](https://fastapi.tiangolo.com/advanced/events/)、[部署記憶體](https://fastapi.tiangolo.com/deployment/concepts/)
 
@@ -697,6 +799,21 @@ Trainer 不透過 `/kernels/{name}/runs` 承擔完整訓練生命週期。既有
 
 Training supervisor 關閉先停止領取，再依政策等候或停止現有 execution，於 DB／tracking client 仍可使用時保存狀態與 checkpoint，最後關閉 broker／store。無法確認停止的工作進入對帳，不假報 CANCELLED。Relay 完成本次有界發布或讓 claim 到期，由下一個 owner 重送相同 command。自訂模組需以自己的 lifespan／exit stack 確保此順序，不能只登記 close_model callback 就假定現有 kernel cleanup 會追蹤所有 ML 工作。
 
+### 12.6 ModelLoader 的責任切分
+
+`VerifiedModelLoader` 是 Application 的載入協調實作，依賴 §5.5 的 Protocol；Infrastructure 不 import 該類別。各步驟的所有權如下：
+
+| 步驟 | 責任 | 禁止混入的行為 |
+| --- | --- | --- |
+| DeploymentSpecReader | 受控 spec 讀取／schema／expected digest／identity | 自行 resolve alias 或接受任意路徑 |
+| ModelArtifactRetriever | 取得固定檔案至 attempt／deployment staging root，限制大小／路徑 | 反序列化、pip install、模型運算 |
+| ArtifactVerifier | 檢查完整 manifest、digest、來源、schema／compatibility record | 用 artifact 自報 trusted types 取代 producer 信任 |
+| PredictionRuntimeFactory | 僅接受 VerifiedArtifacts，載入模型／配置 device | 下載另一版本、繞過驗證、變更 deployment spec |
+| ModelLoader | 編排以上步驟、warm-up、回傳已載入 runtime 或成對清理 | 在未完成 warm-up 時發布 Ready |
+| PredictionRuntime | 對固定 handle predict／close，回報實際 descriptor | 每次 request 選版、修改 alias 或部署 |
+
+驗證失敗時 factory 不得被呼叫；任何中途錯誤都清理 staging、partial runtime 與 native resource。載入結果 descriptor 綁定同一 spec digest／model ref，不能以最後一次全域 cache 狀態替代。若某 framework 需要不同 load adapter，仍須通過同一 ModelLoader／Runtime 行為契約。
+
 ## 13. 可靠性、取消與失敗收斂
 
 ### 13.1 重試分類
@@ -723,7 +840,49 @@ Cancel 與完成同時發生時，以 DB 條件式提交決定：已先成功 co
 
 ### 13.3 Ack、broker 與 Redis
 
-保留現有 durable queue、publisher confirm 與 `when_saved` 基線，但必須測試新增 domain 完成與 transport 終態保存的順序。Taskiq 的 sync process-pool 設定不會把 async 包裝中的任意運算自動移出 event loop。[Taskiq CLI](https://taskiq-python.github.io/guide/cli.html)
+#### 13.3.1 語意與實作證據
+
+Taskiq 官方將 `when_saved` 定義為 result backend 保存後確認訊息；這不保證 PostgreSQL TrainingJob 已 commit。此專案另有 `SnapshotPersistenceMiddleware` 在 `post_execute` 保存 RedisJobStore 快照，不能把它和 Application DB 交易或 Taskiq result backend 當成同一儲存。[Taskiq ACK](https://taskiq-python.github.io/guide/cli.html)
+
+本輪核對的 Taskiq 0.12.6 receiver，`post_execute` 位於 result-backend save 的 try／except 之前；部分 backend 保存例外可能被 catch 後繼續到 ACK。既有 middleware 透過在較早階段等待 Redis 持久保存補強此行為。ML adapter 還須新增 App DB eligibility gate，不能只依賴 CLI 或任意 handler 正常 return；來源 hash／測試範圍見 [符合性審查](ml-system-compliance-review.md)。
+
+尤其既有 `_execute_request` 會把一般 Exception 轉成 FAILED transport result。若未保存的 App DB 例外被這條路徑吸收，不能因此 ACK；新 adapter 必須從 App DB 讀取 evidence，並在既有 snapshot／result／ACK 路徑之前阻擋無 evidence 的完成。
+
+#### 13.3.2 Supervised Local 模式
+
+| 階段 | Application DB 必要證據 | Broker ACK |
+| --- | --- | --- |
+| 收到 Command | 查驗固定 job／attempt／spec，條件式取得 ownership | 禁止 |
+| 啟動／執行中 | STARTING／RUNNING、execution ref、有效 heartbeat／owner | 禁止 |
+| 註冊成功但成果尚未保存 | 尚無固定 model／report refs，或 transaction 未 commit | 禁止 |
+| 成果 refs 已保存、Job 尚未終態 | phase checkpoint 可恢復；不能以成果存在推定業務完成 | 禁止 |
+| Job 終態 commit | SUCCEEDED／FAILED／CANCELLED、固定 refs／安全原因、revision／audit 已 commit | 允許進入 transport 保存流程；保存屏障完成後才 ACK |
+| 自動重試已安全交接 | 舊 attempt 結束、RETRY_WAIT、新 PENDING attempt＋Outbox 同一交易完成 | 可 ACK 舊命令；不把整個 TrainingJob 顯示成功 |
+| DB 終態後 transport 保存失敗 | Domain 仍維持終態，不回退、不重新 fit | 等待保存或保留 delivery；重送只讀終態並補存 transport result |
+| DB commit 失敗／取消／證據不明 | 尚無有效 eligibility evidence | 不 ACK；保留未確認 delivery，交由恢復／對帳 |
+
+另一 owner 仍執行中的重複 local delivery，不以「有人在跑」就立即當終態。第一版等待同一固定 attempt 的終態／安全 retry handoff，或中止 callback 保留重送；避免覆寫原 command 的快照。Future dedup-early-ACK 需另證明 durable recovery guarantee。
+
+#### 13.3.3 External Submitted 模式
+
+| 階段 | Application DB／外部證據 | Broker ACK |
+| --- | --- | --- |
+| start 呼叫前／結果不確定 | 無已確認的穩定 execution ref | 禁止；先以 execution key 對帳 |
+| 外部工作已建立 | App DB commit execution key／ref、spec digest、RUNNING、owner／revision、下一次 reconciliation 時間 | 可保存「啟動命令完成」並 ACK；TrainingJob 維持 RUNNING |
+| 執行中或 callback 丟失 | Durable execution ref 及可重入 reconciliation 紀錄仍存在 | 原啟動命令可已 ACK；reconciler 持續追蹤 |
+| 外部工作完成 | Reconciler 保存成果及 Job 終態 | 更新 TrainingJob；不虛構第二次原命令 ACK |
+
+Reconciliation 紀錄必須與 execution ref 同一 DB 交易保存，並可由其他健康 controller 領取；只有建立 Pod 或收到 Kubernetes API 200 不足以允許 ACK。
+
+#### 13.3.4 Gate、例外與 Receiver 整合測試
+
+`CommandAckGate` 消費 App DB 的 AckEvidence：command／job／attempt、execution mode、spec digest、state revision，以及 terminal disposition、durable retry handoff 或 durable external execution。Evidence 由受控 reader 取得，不信任 payload 自報的 `committed=true`。
+
+目標順序為 application 執行／commit → eligibility gate → transport snapshot durable gate → Taskiq result 保存策略 → ACK。若 receiver 對 result-backend exception 的處理無法滿足所選策略，adapter 必須以 pre-ACK persistence barrier 或受測試的 manual-ACK adapter 補足；不得以手動在 handler 裡提前 ack 繞過 evidence。CLI、task label 與 worker policy 固定為同一 ACK 策略，拒絕不受控的 early-ACK override。
+
+Gate 在 DB 不可用時保持不符合資格，做有界退避且保持可取消；shutdown／取消需逃出正常完成路徑，使 broker 能重送。普通業務失敗只有先保存 FAILED／原因後才可 ACK；單純回傳 failed JSON 不是證據。
+
+測試必須使用真 Taskiq Receiver 與可觀察 ack callback，涵蓋 DB commit 前／後、registration 後未 commit、Redis／result 保存失敗、worker crash、duplicate delivery、external ref 已建但 reconciliation 未保存等窗口。App DB adapter 可用替身驗順序，PostgreSQL 交易／兩 worker 競爭另以真 DB integration 驗證。現有 Redis／receiver 測試不等於新 ML gate 已通過。
 
 Local 長任務模式要核對 broker acknowledgment timeout、consumer prefetch、task timeout、shutdown grace 與最大訓練時長；external executor 模式則以已持久啟動結果為 ack 邊界。RabbitMQ quorum queue 的 delivery／timeout 行為依鎖定版本驗證。[RabbitMQ Quorum Queues](https://www.rabbitmq.com/docs/quorum-queues)
 
@@ -840,6 +999,8 @@ GPU 模式需定義 device assignment、VRAM 預留、初始化／fork 方式、
 | `ML_RESOURCE_PROFILES` | 待新增，核准 mapping／受控設定檔 |
 | `ML_OUTBOX_BATCH_SIZE`／`ML_MAX_PENDING_JOBS_PER_TENANT` | 待新增，有界發布與接受容量 |
 | `ML_DEPLOYMENT_SPEC_PATH` | 待新增，Serving 固定、可驗證的部署描述 |
+| `ML_DEPLOYMENT_SPEC_DIGEST` | 待新增，由受控 launch config 提供 expected JCS digest，不由 spec 自證 |
+| `ML_RUNTIME_INSTANCE_ID` | 待新增，由 controller 綁定 launch；boot ID 每次 runtime 啟動重新產生 |
 | `ML_PREDICTION_MAX_BATCH_SIZE`／`ML_PREDICTION_TIMEOUT_SECONDS` | 待新增，admission／deadline |
 
 MLflow server 的 SQL、artifact destination、auth 與 storage credential 獨立管理，不把 server 管理 credential 放進 API／Serving。Dev／production 使用不同 secrets／storage scope。
@@ -884,6 +1045,8 @@ Training child: only launched by the approved TrainingExecutor
 
 目標 `compose.ml.yaml` 覆寫既有 api／worker 的角色、build、command，增加 outbox／control／serving／PostgreSQL／MinIO／MLflow；保留 Mongo identity 及 RabbitMQ／Redis。Serving 不取得 training／admin credential。
 
+上述 worker 命令只是入口規格；`ml_worker` 必須先組裝 §13.3 的 App DB／transport persistence gates，CLI 本身不構成 ACK 保證。Serving 的 spec path／expected digest 由 §11.5 的 controller-managed launch 交付，不讓操作員用 latest alias 取代它。
+
 開發服務需要公開時只綁 loopback，內部用 network DNS。新服務／image 鎖定版本與 digest；DB、bucket、帳號及 schema 用明確管理步驟初始化。正式 HA、TLS、備份、secrets 依目標環境驗收。
 
 ### 16.5 依賴與映像
@@ -899,6 +1062,8 @@ Training child: only launched by the approved TrainingExecutor
 現有 pyproject runtime 為完整平台 SDK。最小角色映像需要 extras／角色依賴輸入，並更新 lock updater、Dockerfile、package verifier／CI；enable=false 不會移除套件。
 
 Python 版本依各 runtime 支援矩陣固定。API／模型 runtime 可以不同 Python，但跨程序契約與模型格式需驗證，不能任意跨版本反序列化 Python 模型。
+
+正式欄位、支援狀態及資格證據見 [Runtime Compatibility Matrix](ml-runtime-compatibility.md)。必須記錄 Python、MLflow client／server、sklearn、NumPy、serializer／trusted-type policy、OS／arch、image digest 與 load／predict／rollback 測試；只有已通過的精確組合可標 `qualified`。目前無 ML runtime 的合格列，不能把平台 Python CI 矩陣當成模型格式相容證據。
 
 ## 17. 可觀測性、健康與運作目標
 
@@ -936,6 +1101,20 @@ Metrics labels 不放 request／job ID 或無界版本；細部關聯留在 log�
 產品定義提交延遲、最大排隊、完成率、預測 latency／availability、取消期限及 RPO／RTO。固定模型、資料量、batch、硬體及併行後量測，不對所有模型承諾同一毫秒數。
 
 負載驗收同時訓練與預測，確認資源隔離；故障驗收含 DB、MLflow、broker、Redis、worker、storage 及 rollout。
+
+### 17.4 M3 的可量測目標閘門
+
+M3 前必須發布環境專屬、版本固定的 Acceptance Profile，包含 workload／模型／資料集／batch、硬體／image、測量窗口／方法、metric、數值 target、單位、pass condition、owner 與報告 ref。
+
+| 目標 | 必填數值與測法 |
+| --- | --- |
+| 提交／排隊 | p95 submit ms、最大 queue seconds／backlog、租戶容量；指定併行及 broker 故障窗口 |
+| 預測 | p95／p99 ms、RPS、batch／payload、錯誤率／availability 比例與觀測期間 |
+| 訓練／取消 | 成功率／完成期限、active slots、CPU／RAM／VRAM 上限、stop-confirmed seconds |
+| 恢復 | App DB／identity／metadata／artifact 各自 RPO seconds、整體 RTO seconds；以實際 restore 演練量測 |
+| 發佈 | Ready→routing convergence seconds、rollback seconds、允許的不可用／錯版回應數 |
+
+Target 不得留空、TBD、只有「符合 SLO」或只有百分比而無測量窗口。未填數值的 profile 可維持 draft，但不得通過 M3；也不能以文件範例數值當實測結果。Profile 的 owner、來源 digest 與 load／restore 報告必須和退出判定一起保存。
 
 ## 18. CI、測試與交付證據
 
@@ -983,6 +1162,35 @@ Metrics labels 不放 request／job ID 或無界版本；細部關聯留在 log�
 | ML-T23 | 備份還原後 refs 可對帳，queue 重送不重複副作用 |
 | ML-T24 | 角色 image 無多餘 framework／credential，真安裝／import smoke |
 | ML-T25 | 同時訓練／預測符合核准容量與 SLO，資源不失控 |
+| ML-T26 | Application Port ownership 與 structural assembly 通過型別檢查；Infra／Plugins 不 import application |
+| ML-T27 | local 模式 RUNNING／registration 成功但 DB 未 commit，真 Receiver 的 ack callback 不得執行 |
+| ML-T28 | App DB 終態後 result／snapshot 保存故障與重送，不重新 fit、不回退 Job |
+| ML-T29 | App DB commit 例外被 generic handler 包裝時 gate 仍阻擋 ACK；取消／shutdown 保留 delivery |
+| ML-T30 | external ACK 只在 execution ref＋reconciliation transaction commit 後允許，Job 保持 RUNNING |
+| ML-T31 | spec 原子發布／唯讀交付，錯 digest／identity／schema／重複 key／檔案缺失不 Ready |
+| ML-T32 | controller 比對實際 image／compatibility；runtime 只重述 spec image 不算驗證 |
+| ML-T33 | 新 replica Ready 但 routing 仍舊 generation，或 probe 回舊 handle，不得記 ACTIVE |
+| ML-T34 | 可替換 Evaluator；重評固定模型不呼叫 fit，品質 policy 與 metrics 計算分開，report 不覆寫 |
+| ML-T35 | Retrieval／Verification／Loading 各步驟失敗成對清理；驗證不過不得呼叫 runtime factory |
+| ML-T36 | 每個具體 Trainer／Evaluator／Executor／Runtime adapter 跑同一族共同行為測試 |
+| ML-T37 | Compatibility 列缺精確版本／image／證據或不合格時拒絕正式 load；合格列通過 golden／rollback |
+| ML-T38 | M3 profile 缺數值／單位／窗口／方法／owner／實測報告時不得退出 |
+| ML-T39 | 偽造／重播／過期 observation、錯 boot／instance／generation 不得切流 |
+| ML-T40 | C4／spec schema／主文件版本與 traceability 對照一致，附件 digest 可核對 |
+
+### 18.2.1 SOLID／LSP 共同行為測試
+
+每個 adapter 以 contract fixture 註冊 factory，執行相同的行為 suite；第一個實作也執行，不等待有第二個 adapter 才寫。替身用於故障注入，真 SDK／process 的能力另列整合證據。
+
+| Port family | 所有實作共同承諾 |
+| --- | --- |
+| Trainer | 固定 recipe／資料、輸出 manifest、seed policy、資源限制、不自行 promotion |
+| Evaluator | 固定模型／資料的 report／metrics，無 fit、版本可追溯，ERROR 與 REJECTED 分開 |
+| TrainingExecutor | start／execution-key 對帳、inspect、cancel requested／stopped、deadline、ownership、cleanup |
+| ModelLoader／Runtime | 先驗後載、warm-up、固定 descriptor、輸入／輸出、in-flight／close、有限資源與錯誤語意 |
+| Deployment／ACK adapters | spec identity、generation／routing、durable evidence gate、故障窗口與安全重送 |
+
+共同行為不代表所有 framework 有完全相同效能或 deterministic bits；batch、thread safety、GPU／hard-cancel 等 capability 必須明確聲明，consumer 不可假設未承諾能力。不要只用方法存在或 `isinstance` 當 LSP 證據。
 
 ### 18.3 品質入口與證據
 
@@ -1008,13 +1216,13 @@ Release 保存 source／image digest、角色 locks、SBOM、dependency／SAST�
 | --- | --- | --- |
 | WP-01 | entities、狀態機、DTO、錯誤、權限、OpenAPI | 本文件；contract tests／資料字典 |
 | WP-02 | SQL repository／UoW／migration／idempotency／Outbox | WP-01；真 DB 交易與競爭測試 |
-| WP-03 | stable publisher／Relay／claim／payload version | WP-02；ML-T02～06 |
+| WP-03 | stable publisher／Relay／claim／payload version／ACK evidence gate | WP-02；ML-T02～06、27～30 |
 | WP-04 | local process／runner／cancel／deadline／heartbeat | WP-01、03；ML-T07／10／11 |
-| WP-05 | Dataset snapshot／recipe／Trainer／evaluation | WP-01、04；fixture／golden cases |
+| WP-05 | Dataset snapshot／recipe／Trainer／獨立 Evaluator／QualityPolicy | WP-01、04；ML-T15、34、36 |
 | WP-06 | MLflow tracking／registry／artifact／對帳 | WP-02、05；ML-T08／09／16 |
 | WP-07 | 管理 API／查詢／角色 catalog／scope | WP-01～03；HTTP／queue 授權 |
-| WP-08 | approval／deployment controller／rollout／rollback | WP-06、07；ML-T17／18／20／21 |
-| WP-09 | Serving factory／runtime／schema／provenance | WP-05、06、08；ML-T14／15／19／22 |
+| WP-08 | approval／spec delivery／controller／routing／rollback | WP-06、07；ML-T17／18／20／21、31～33、39 |
+| WP-09 | Serving factory／ModelLoader／runtime／schema／provenance | WP-05、06、08；ML-T14／15／19／22、35／37 |
 | WP-10 | 角色 locks／images／Compose／CI E2E | WP-03～09；ML-T24／source manifest |
 | WP-11 | 故障、觀測、備份恢復與容量 | WP-10；ML-T23／25／runbooks |
 
@@ -1024,10 +1232,10 @@ Release 保存 source／image digest、角色 locks、SBOM、dependency／SAST�
 
 | 階段 | 成果 | 退出條件 |
 | --- | --- | --- |
-| M0 契約 | 資料字典、ports、API、版本／權限 | 架構、Backend、DS／Platform 共識；高影響待定有 owner |
+| M0 契約 | 資料字典、Port Ownership、ACK／Spec Delivery、Evaluator、API | 四項 P0 契約定稿；型別與 adapter tests 計畫有 owner |
 | M1 接受與執行 | 持久 Job／Outbox、stable command、claim、可取消 process | 重送／broker 中斷／worker crash 核心案例通過 |
 | M2 完整 CPU 路徑 | sklearn、資料版本、MLflow、評估、人工核准、固定模型 Serving | 真 E2E、scope、provenance、失敗保留舊部署通過 |
-| M3 可維運試點 | 角色映像、觀測、對帳、migration、rollback／restore | 必要 ML-T、產品容量／SLO／RPO／RTO 與 runbooks 通過 |
+| M3 可維運試點 | 角色映像、觀測、對帳、migration、rollback／restore | 必要 ML-T、合格 compatibility 列、數值化 Acceptance Profile 與實測報告通過；不得保留 TBD |
 | M4 需求擴展 | GPU／Kubernetes／HPO／drift 自動化 | 各能力有契約、故障／容量驗證與相容性 |
 
 M2 已必須有 idempotency、Outbox、domain claim 與核准隔離；M3 擴大故障／容量驗收，不是首次加入可靠性。
@@ -1142,3 +1350,20 @@ Restore／重大 migration 前停止新提交／發布並盤點 in-flight，避�
 實作時同步更新現況／待實作標記、真命令、版本及驗收對照。新證據獨立保存，不覆寫歷史；狀態機、ownership、訊息、部署契約變更需有相容性、migration 與受影響測試。
 
 文件完成表示設計成文；ML 功能完成仍以程式、測試、映像及部署證據判定。
+
+### 22.4 v0.2 審查意見與交付對照
+
+| 審查項目 | 定稿位置／附件 | 實作閘門 |
+| --- | --- | --- |
+| P0-1 Port Ownership | §5.1、5.5～5.6、7.3；Application-owned workflow Protocol，保留 structural adapter | WP-01／ML-T26 |
+| P0-2 Taskiq ACK | §9.6、13.3；local／external evidence 表與 receiver gate | WP-03／04，ML-T27～30 |
+| P0-3 Spec Delivery | §11.5、12.1、16.1；[schema／launch／observation](contracts/ml-deployment-v1/README.md) | WP-08／09，ML-T31～33／39 |
+| P0-4 Evaluation | §5.1、6.5、7.3、10.2；獨立 Evaluator、QualityPolicy、不可變 report | WP-05，ML-T34 |
+| P1 Loader／Trainer 命名 | §5.1、12.6；plugins/training／evaluation，retrieve／verify／load 分責 | WP-05／09，ML-T35 |
+| P1 SOLID／Import Matrix | §5.6、18.2.1；共同 adapter suite，無 Infra→Application import | WP-10，ML-T26／36 |
+| P1 C4 圖文追溯 | [版本化 L1～L4](diagrams/ml-system-v0.2/README.md)與圖號對照；原圖未提供，重繪狀態明示 | 文件檢查／ML-T40；非舊圖逐圖比對 |
+| P1 Routing／Compatibility | §11.5.4、[Runtime Matrix](ml-runtime-compatibility.md) | WP-08／09，ML-T32／33／37／39 |
+| M3 數值門檻 | §17.4、19.2、21.1；數值、單位、窗口、owner、實測報告 | ML-T38；缺欄不得退出 M3 |
+| Source Compliance | [指定 commit 審查](ml-system-compliance-review.md)與本輪原始 evidence | 既有平台實測；ML／真服務 integration 未驗證 |
+
+V0.2 完成上述設計契約與附件，不代表新增 ports、ACK gate、Evaluator 或部署 adapter 已落地。ML-O04／07 的容量／SLO／RPO／RTO 必須在 M3 前數值化；ML-O08 在各 runtime qualification 前選定並驗證精確組合。
