@@ -1,0 +1,70 @@
+name: Container
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "47 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image-and-broker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - run: python -m pip install --no-deps --no-build-isolation -e .
+      # The runner builds the actual Dockerfile, checks default startup/non-root,
+      # and checks API + workers against isolated real RabbitMQ/Redis/Mongo services.
+      - run: python scripts/verify_docker.py --output-dir work/container-validation
+      - name: Export the verified image
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+          import subprocess
+          reports = list(pathlib.Path("work/container-validation").glob("*/report.json"))
+          assert len(reports) == 1, reports
+          report = json.loads(reports[0].read_text())
+          assert report["passed"] and report["cleanup_complete"], report
+          subprocess.run(["docker", "save", "--output", "work/image.tar", report["image"]], check=True)
+          PY
+      # No Docker socket is passed to scanners. Keep full findings + SBOM even
+      # when the gate fails; only HIGH/CRITICAL issues with a fix block this gate.
+      - name: Container vulnerability report
+        run: >-
+          docker run --rm --volume "$PWD/work:/work"
+          aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c image --input /work/image.tar --scanners vuln
+          --format json --output /work/container-vulnerabilities.json
+      - name: Container SBOM
+        if: always()
+        run: >-
+          docker run --rm --volume "$PWD/work:/work"
+          aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c image --input /work/image.tar
+          --format cyclonedx --output /work/container-sbom.cdx.json
+      - name: Block fixable high and critical container vulnerabilities
+        run: >-
+          docker run --rm --volume "$PWD/work:/work"
+          aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c image --input /work/image.tar --scanners vuln
+          --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: container-evidence
+          path: |
+            work/container-validation/
+            !work/container-validation/**/secrets.env
+            work/container-vulnerabilities.json
+            work/container-sbom.cdx.json
+          if-no-files-found: warn
