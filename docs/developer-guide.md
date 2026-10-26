@@ -2,10 +2,10 @@
 
 | 項目 | 內容 |
 | --- | --- |
-| 文件版本／日期 | DG-001 v1.0／2026-10-24 |
+| 文件版本／日期 | DG-001 v1.1／2026-10-26 |
 | 適用對象 | 在本平台上開發業務功能的各業務團隊 Backend 工程師、Reviewer |
-| 對應基線 | [軟體架構設計規格](software-design.md) v1.2、[模組功能規範](module-spec.md)、[術語](glossary.md) |
-| 審核狀態 | 已完成內容核對及隔離範例驗證；範圍與證據見第 11 節 |
+| 對應基線 | [軟體架構設計規格](software-design.md) v1.3、[模組功能規範](module-spec.md)、[術語](glossary.md) |
+| 審核狀態 | 已完成內容核對及隔離範例驗證；v1.0 歷史證據見第 11 節；現行重跑指令及交付見第 12 節 |
 | 文件定位 | **操作手冊**。規範性條文以 module-spec 與 `scripts/check_boundaries.py` 為準；兩者衝突時以程式與規範為準並回報平台團隊 |
 
 本平台是通用 Python Backend 藍圖，**不預載產品專屬模型與流程**；identity/jobs/exports/kernels 仍提供共用平台模型與政策。各業務團隊以「應用能力（capability）」為單位加入功能：同一個 capability 名稱橫跨數個分層 package，最後在 `bootstrap/` 明確組裝。本手冊用中性範例 `items` 示範完整流程，請將 `items` 換成你的能力名稱。
@@ -1138,9 +1138,9 @@ async def test_routes_map_domain_errors() -> None:
 - [ADRs](adr/README.md)：架構決策與待決事項（OD-01～OD-05 與新應用直接相關）
 
 
-## 11. 交付審核與範例驗證紀錄
+## 11. v1.0 歷史交付審核與範例驗證紀錄
 
-本手冊於 2026-10-24 對照本機 PBP-SAD-001 v1.2 工作樹完成審核。`items` 僅在隔離副本由文件程式碼區塊原樣提取，沒有加入正式 application 註冊清單；不以文件中的測試宣告替代實際執行證據。
+本手冊 v1.0 於 2026-10-24 對照當時 PBP-SAD-001 v1.2 工作樹完成審核。以下為當時結果，原始證據保持不變。`items` 僅在隔離副本由文件程式碼區塊原樣提取，沒有加入正式 application 註冊清單；不以文件中的測試宣告替代實際執行證據。
 
 | 驗證版本 | 依賴邊界／Ruff／格式 | strict Mypy | 文件內測試 | 額外審查測試 |
 | --- | --- | --- | --- | --- |
@@ -1156,3 +1156,20 @@ Compose 5.1.2 的 `config --quiet` 及 JSON 設定檢查通過：API 與 worker 
 文件測試的 service／HTTP 使用 fake repository 與 dependency override；額外 adapter／組裝測試使用明確替身，不宣稱已證明真實資料庫效能、JWT 登入端到端、跨主機 HA 或正式環境容量。文件中的部署指令可用於接入，但不得將設定解析通過當成容器實跑通過。
 
 完整 [審核證據](evidence/developer-guide-2026-10-24/README.md) 保存命令、結果、提取 mapping、驗證時文件 SHA-256 及交付版 code-fence 雜湊；交付版只追加文字審核結果與修正文義，Python／YAML 區塊與通過驗證版本相同。
+
+
+## 12. 現行基線重跑與新專案採用
+
+DG-001 v1.1 對應 PBP-SAD-001 v1.3，保留本手冊 22 個 Python 程式碼區塊；新增工程驗證與停用背景工作規範。歷史證據不自動代表新基線通過，實際本輪結果見 [validation](validation.md) 與 [handover](handover.md)。
+
+在已安裝鎖定開發環境的專案根目錄執行：
+
+```bash
+python scripts/verify_guide.py
+```
+
+腳本建立兩份新的隔離副本，依明確對應原樣提取同步與背景範例，僅修改該副本的能力檔案及 wiring；執行邊界、Ruff、格式、Mypy、文件內測試與已保存的授權／背景回歸案例。程式碼區塊數量或對應不符會拒絕執行，結果保存在 work/guide-validation/<run-id>/，不將教學能力加入正式專案。此指令不啟動外部服務；真容器新能力驗收另見交付證據。
+
+純同步能力可選 APP_TASK_BACKEND=disabled；此時 context.jobs 為 None，不能匯出 tasks 或開啟 job 查詢。步驟⑨使用背景工作，必須選 memory（僅開發單程序）或 distributed（共享工作）；步驟⑨-C 已示範拒絕缺少 job service。背景 worker 只接受 distributed。
+
+建立新產品時，保留目前分層與 bootstrap 註冊方式，依序完成：乾淨環境安裝 → 驗證空白基線 → 新增能力各層 → 明確 wiring → 契約／授權測試 → wheel／image 建置 → 實際依賴整合。新增能力允許修改明確註冊及必要依賴／部署設定；不應為單一能力修改共通 runtime 行為。使用第三方 SDK、持久副作用或既有 schema 時，依 [CONTRIBUTING](../CONTRIBUTING.md) 提供依賴、冪等及 migration 證據。

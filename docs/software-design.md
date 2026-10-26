@@ -2,8 +2,8 @@
 
 | 文件控制 | 內容 |
 | --- | --- |
-| 文件編號／版本 | PBP-SAD-001／1.2 |
-| 基線日期／驗證更新 | 2026-10-23／2026-10-24 |
+| 文件編號／版本 | PBP-SAD-001／1.3 |
+| 基線日期／驗證更新 | 2026-10-23／2026-10-26 |
 | 狀態 | 工程交付基線；組織架構、安全與生產驗收仍待指定責任人審查 |
 | 適用對象 | 系統架構、Backend、Solution／Data Science、Platform／IT、測試與維運團隊 |
 | 適用程式 | 本專案 `server.py`、`worker.py`、`manage.py`、`src/`、`bootstrap/` 與部署／測試設定 |
@@ -159,7 +159,7 @@ flowchart LR
 | Taskiq workers | 背景 async 任務，各程序有限並行 | handler 直接呼叫 application，不經 API HTTP；純 Python CPU 工作需明確委派隔離執行 |
 | Process／remote kernel | CPU/GPU、強制終止或記憶體隔離需求 | 現有契約可接入；平台未內建通用 process pool、GPU scheduler 或模型服務 |
 
-生產設定要求 distributed 任務。memory 僅單 API 程序，重啟可遺失工作。建議從 `python server.py --workers N` 啟動，由 CLI 將驗證過的覆寫傳給 child；直接使用 Uvicorn CLI 時需自行維持 `APP_WORKERS`、distributed 等設定一致，Application Factory 不能可靠檢查外部 CLI worker 數。reload 與多 worker 互斥。
+生產設定接受 disabled（無背景工作）或 distributed（共享工作）；memory 僅供 development／test 單 API 程序，重啟可遺失工作。disabled 使用不建立背景 task 的拒絕型 dispatcher，誤用提交／查詢會明確失敗；ModuleContext.jobs 為 None，模組若匯出 tasks 則啟動失敗並回滾。建議從 `python server.py --workers N` 啟動，由 CLI 將驗證過的覆寫傳給 child；直接使用 Uvicorn CLI 時需自行維持 `APP_WORKERS`、distributed 等設定一致，Application Factory 不能可靠檢查外部 CLI worker 數。reload 與多 worker 互斥。
 
 容量估算至少涵蓋 API/worker 程序總數 × Mongo pool（預設每程序 20）、thread 數、Taskiq async concurrency、HTTP pool、模型常駐記憶體、BLAS/native thread 與 GPU 配額。不能將預設值當成核准產能。大型模型宜由專用 worker/remote adapter 持有，API 可注入輕量 proxy 或 descriptor；尚無現成 remote model server。
 
@@ -213,16 +213,16 @@ flowchart LR
 
 ## 7. 任務調派與失敗契約
 
-`JobService` 驗證已註冊 handler，產生 job_id 並透過 `JobDispatcher` 提交。`TaskResolver` 只定義查找 handler，adapter 不依具體 application registry。TaskRequest 含 name/payload/時間與可選 tenant/owner（兩者須成對）；payload/result 必須 JSON object，不能帶 session、client、datetime、exception 或秘密。
+`JobService` 驗證已註冊 handler，產生 job_id 並透過 `JobDispatcher` 提交；從中性 request context 擷取 request_id。`TaskResolver` 只定義查找 handler，adapter 不依具體 application registry。TaskRequest 含 name/payload/時間、schema_version=1、可選 request_id 與 tenant/owner（兩者須成對）；傳輸 decoder 兼容未帶 schema_version/request_id 的舊格式，拒絕不支援版本與異常欄位。這些欄位驗證不替代 handler 的專屬 schema；payload/result 必須 JSON object，不能帶 session、client、datetime、exception 或秘密。
 
 ### 7.1 本機與分散式
 
-| 項目 | Memory | Distributed |
-| --- | --- | --- |
-| 適用 | 開發、單程序 | 多 API／worker 共享工作 |
-| 容量 | 固定 queue＋並行數，snapshot TTL/最大紀錄數 | RabbitMQ quorum durable queue、persistent publish、consumer QoS；broker 儲存容量另管 |
-| 狀態 | 程序內 snapshot，重啟遺失 | Redis JSON snapshot＋TTL，非永久業務歷史 |
-| Shutdown | 先等待 queue，超時取消 coroutine | receiver/Taskiq 等待；取消不 ack，channel 關閉後可重送 |
+| 項目 | Disabled | Memory | Distributed |
+| --- | --- | --- | --- |
+| 適用 | 純 API／無背景工作，可多 API 程序 | 開發、單程序 | 多 API／worker 共享工作 |
+| 容量 | 不建立 queue／consumers | 固定 queue＋並行數，snapshot TTL/最大紀錄數 | RabbitMQ quorum durable queue、persistent publish、consumer QoS；broker 儲存容量另管 |
+| 狀態 | 無 job 狀態 | 程序內 snapshot，重啟遺失 | Redis JSON snapshot＋TTL，非永久業務歷史 |
+| Shutdown | 無背景工作需要 drain | 先等待 queue，超時取消 coroutine | receiver/Taskiq 等待；取消不 ack，channel 關閉後可重送 |
 
 `APP_TASK_QUEUE_SIZE`／`APP_JOB_MAX_RECORDS` 是 memory 機制，並非 distributed broker 的全域 queue 長度限制。需要 broker quota、超載拒絕與 DLQ 運作政策時另訂部署規格。
 
@@ -280,11 +280,11 @@ MongoExportSource 查詢固定 tenant；沒有 data.read_all 時固定 owner。�
 | --- | --- |
 | 空白本機 | development、memory、1 API，Mongo/identity/kernel/export/job API 關閉 |
 | Compose 開發 | distributed、RabbitMQ/Redis/Mongo、identity、Redis resource coordinator；kernel/export API 仍需明確打開 |
-| 生產 | distributed；identity 啟用時須 Mongo＋有效 key；受保護 application/job API 必須有 identity；kernel/export API 需 identity |
+| 生產 | 純 API 用 disabled；共享工作用 distributed；identity 啟用時須 Mongo＋有效 key；受保護 application/job API 必須有 identity；kernel/export API 需 identity |
 
 readiness 在 3 秒內檢查本程序 dispatcher 與已啟用 Mongo/coordinator；失敗 503。liveness 僅表示 HTTP process 可回應。沒有獨立 worker readiness/heartbeat，不能從 API ready 推論有 worker 消費、模型可用或下游可完成工作。
 
-API lifespan 目前呼叫 logging initializer，管理 `src` 與 `bootstrap` 兩個 application logger roots；worker startup 尚未初始化相同 formatter。JSON log 包含時間、level、logger、request ID、process ID；HTTP middleware 驗證/產生 X-Request-ID，kernel 記錄版本、actor/tenant、結果與時間，不寫 model input/output。沒有 metrics/tracing exporters、不可變 audit ledger 或所有通用 task 的自動 correlation context。需要完整端到端追蹤時，另訂版本化 job context 與敏感資料規範。
+API lifespan 與 worker startup 共用 logging initializer，管理 `src` 與 `bootstrap` application logger roots；Uvicorn／Taskiq host logger 維持其行為。JSON log 包含時間、level、logger、service、environment、role、request_id、job_id 與 process_id。HTTP middleware 驗證／產生 X-Request-ID；一般工作經 JobService 與版本化 envelope 傳遞 request_id，memory／Taskiq handler 設定並還原每個 job context。預設例外欄位只記 exception_type，不自動輸出原始例外文字；開發人員仍不得在 message 中主動記錄秘密或完整 payload。此 request/job correlation 不等同 distributed tracing；尚無 metrics/tracing exporters、worker heartbeat 或不可變 audit ledger。
 
 ## 11. 部署與維運基線
 

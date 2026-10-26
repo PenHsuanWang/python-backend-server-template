@@ -80,7 +80,7 @@ Runner 為 RabbitMQ、MongoDB、JWT 及 admin password 產生一次性隨機值�
 work/docker-validation/backend-verify-<run-id>/
 ```
 
-依執行進度可能包含 `build.log`、`default.log`、`startup.log`、`containers.json`、`stack.log`、`cleanup.log`、`pytest.log`、pytest 暫存目錄及 `report.json`。尚未執行至對應階段時，該階段日誌可能不存在。
+依執行進度可能包含 `build.log`、`default.log`、`startup.log`、`containers.jsonl`、`stack.log`、`cleanup.log`、`pytest.log`、pytest 暫存目錄及 `report.json`。尚未執行至對應階段時，該階段日誌可能不存在。
 
 Runner 正常返回時，成功的 exit code 為 0；驗證失敗或資源清除失敗則返回 1。應同時確認 `report.json` 的 `passed: true`、`cleanup_complete: true`，並依是否指定 `--host-tests` 確認完整測試檢查項目。若某項失敗，先檢查 `error`、`cleanup_error`、已完成的 `checks` 與對應日誌。
 
@@ -104,4 +104,4 @@ docker compose --env-file <該次secrets.env的路徑> \
 
 ## 2026-10-24 最終實跑
 
-本次已依上述流程完整通過；[九類檢查與 image ID](evidence/docker-2026-10-24/report.json)、[406 passed／0 skipped](evidence/docker-2026-10-24/pytest.log) 與 [證據導讀](evidence/docker-2026-10-24/README.md) 已保存。動態 host port 在 container restart 後可能重新分配，runner 會重新查詢後再驗證狀態。先前兩次檢查腳本問題修正後，才以最後一次完整重跑列為通過。
+以下為 2026-10-24 的歷史 run；最新 v1.3 結果見 [驗證紀錄](validation.md)。當時已依上述流程完整通過；[九類檢查與 image ID](evidence/docker-2026-10-24/report.json)、[406 passed／0 skipped](evidence/docker-2026-10-24/pytest.log) 與 [證據導讀](evidence/docker-2026-10-24/README.md) 已保存。動態 host port 在 container restart 後可能重新分配，runner 會重新查詢後再驗證狀態。先前兩次檢查腳本問題修正後，才以最後一次完整重跑列為通過。

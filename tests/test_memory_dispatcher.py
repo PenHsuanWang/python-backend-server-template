@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -300,6 +301,31 @@ async def test_unknown_task_and_duplicate_id_do_not_corrupt_existing_job():
             await dispatcher.dispatch(request("duplicate"))
         snapshot = await wait_for_status(dispatcher, "duplicate", JobStatus.SUCCEEDED)
         assert snapshot.result == {"original": True}
+    finally:
+        await dispatcher.aclose()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"schema_version": 2},
+        {"schema_version": True},
+        {"request_id": "invalid\r\ncorrelation"},
+        {"tenant_id": "tenant-without-owner"},
+        {"payload": {"number": float("nan")}},
+    ],
+)
+async def test_invalid_envelope_does_not_enqueue_or_evict_existing_history(changes):
+    dispatcher = MemoryJobDispatcher(registry_with_echo(), max_records=1, concurrency=1)
+    await dispatcher.start()
+    try:
+        await dispatcher.dispatch(request("existing", payload={"original": True}))
+        original = await wait_for_status(dispatcher, "existing", JobStatus.SUCCEEDED)
+        with pytest.raises(ValueError):
+            await dispatcher.dispatch(replace(request("invalid"), **changes))
+        assert await dispatcher.get("invalid") is None
+        assert await dispatcher.get("existing") == original
+        assert dispatcher._queue.empty()
     finally:
         await dispatcher.aclose()
 

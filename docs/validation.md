@@ -1,4 +1,32 @@
-# 驗證紀錄（更新：2026-10-24）
+# 驗證紀錄（更新：2026-10-26）
+
+## v1.3 工程交付驗收
+
+交付對象為使用通用範本的開發團隊。以下結果對應本機指定專案的交付工作樹；基底 commit 為 `31248de22da57fc604d1481465a7cc71dd1f6801`，新修改尚未 commit／push。完整來源與 artifact 雜湊另存證據，不能只用舊 commit 宣稱新版本已驗收。
+
+| 項目 | 實際結果與範圍 |
+| --- | --- |
+| 最終完整 pytest | **444 passed，0 skipped，10.40 秒**；host Python 3.13.11，RabbitMQ／Redis／MongoDB 為隔離真容器，包含雙程序整合。 |
+| Python 3.13 單元與 coverage | 440 passed、4 integration deselected；整體 **86.47%**，85% 門檻通過。 |
+| Linux Python 3.11 | 2026-10-24 以乾淨 hash 安裝環境執行：440 passed、4 integration deselected；整體 **86.60%**。其後產品 Python 邏輯未改；最後 image 工具移除及文件另有驗證。 |
+| Coverage 定義 | 啟用 branch 量測，數字為 coverage.py 合併 line／branch 指標，不是純 branch 百分比。來源分母保留 integration adapters；tests／scripts／work／build 等不計。 |
+| 品質檢查 | Ruff、格式、依賴邊界、strict Mypy 108 source files 與 pip check 通過。workflow 另經 actionlint；結果與命令保存在檢查日誌。 |
+| Wheel／sdist | Python 3.11／3.13 分離乾淨 build／runtime venv，真實非 editable 安裝；checkout 外 isolated import、外部 socket 阻擋、disabled lifespan／health／cleanup 通過。最終 3.13 wheel／sdist 通過 Twine strict。 |
+| 開發手冊 | 22 個 Python 區塊原樣提取，同步／背景兩份新副本的 boundary、Ruff、格式、Mypy 與行為測試全通過；同步 18、背景 29 案例包含共同測試，不加總為獨立平台案例。 |
+| 新能力採用 | 文件中性 items 能力於隔離副本完成真 image／API／worker／MongoDB／RabbitMQ／Redis：建立與讀取、背景讀取、同 tenant 他人及跨 tenant 拒絕、job 結果隔離通過。正式專案未註冊該能力。 |
+| 映像整合 | 非 root、原始 CMD、無 pip／ensurepip、乾淨 OpenAPI、readiness、SIGTERM；雙 API／雙 Taskiq 完成 32 筆 JWT 授權工作；API restart 後 session／snapshot 保存、logout 撤銷通過。 |
+| Secret 掃描 | Git 歷史與目前交付工作樹均通過 Gitleaks；例外限定已核對的 SHA／參數轉發／官方 Python 公開 GPG 指紋，未略過整份原碼或報告。 |
+| Dependency／SAST | hash locks 稽核 111 筆 dev／build 條目（可能含重複），零已知漏洞；Bandit medium severity／confidence gate 通過。 |
+| Image 安全 | Trivy 0.76.1，無可修復的 HIGH／CRITICAL；完整 JSON 及 CycloneDX SBOM 保存。掃描仍有基底 Debian 未提供修正版項目：44 HIGH、58 MEDIUM、61 LOW、1 UNKNOWN，不能解讀為零漏洞。 |
+| Source／文件 | Python／文件／SVG／設定命名已核對；原始參考與舊 evidence 未改寫。現行設計 PBP-SAD-001 v1.3、手冊 DG-001 v1.1。 |
+
+最終 image 為 `local/backend-validation:4993264301f9`，ID `sha256:40dbbc13c30674dc418e7443f147dce7ab42fed24f7ec6ed3344cae10c86b2d0`，Linux arm64、Python 3.13.17。Docker 29.4.0，RabbitMQ 4.4.0、Redis 7.4.8、MongoDB 8.3.13。該 run 的 containers／network／volumes 已清理，image 保留。
+
+[本次證據導讀](evidence/handover-2026-10-26/README.md) 保存實際命令、日誌、報告、受驗產物與雜湊。[交付狀態](handover.md) 及 [工程重跑規範](engineering-baseline.md) 說明交付與正式部署界線。GitHub 遠端 CI／branch protection、registry／CD、產品目標環境壓測／HA／恢復與生產核准沒有在本次宣告完成；API readiness 不證明 worker heartbeat，request/job correlation 不等同 tracing。
+
+## 2026-10-24 歷史驗證紀錄
+
+以下原紀錄保留當時版本與未執行範圍。其「本輪／先前」均指當時 run，不取代上方 v1.3 結果。
 
 下列命令從本專案根目錄執行，以載入 `pyproject.toml` 的 async 測試設定。host 測試環境使用 Python 3.13.11；Docker image 內為 Python 3.13.17／Linux arm64；依賴版本記錄於 `requirements.lock`。主要套件為 FastAPI 0.161.1、Uvicorn 0.54.0、Taskiq 0.12.6、taskiq-aio-pika 0.6.1、redis-py 8.1.0、PyMongo 4.19.0、pwdlib 0.3.1 與 PyJWT 2.15.1。
 

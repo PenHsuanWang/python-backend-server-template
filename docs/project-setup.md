@@ -4,7 +4,7 @@
 
 本專案由已驗證的 prototype 複製而來，160 個原始碼、測試、設定範本與設計／驗證文件逐檔 SHA-256 一致。原始交付目錄與 ZIP 保留。新增的本機 Git 與 `.venv` 分別在此目錄建立，沒有複製舊虛擬環境、快取、臨時帳密或執行中的資料庫。
 
-本機 Git 已初始化於 `main`，尚未建立第一筆 commit 或設定 remote。可先檢查 `git status`，再依團隊規範建立基線。Python distribution 名稱維持 `modular-fastapi-backend`，不依賴資料夾名稱。
+移轉當時本機 Git 初始化於 `main`；其後已建立 commit 並設定 GitHub remote。以下測試數與環境屬移轉當時紀錄；目前交付狀態以 [handover](handover.md) 與 [validation](validation.md) 為準。Python distribution 名稱維持 `modular-fastapi-backend`，不依賴資料夾名稱。
 
 ## 開始開發
 
@@ -21,7 +21,9 @@ python server.py --reload
 ```bash
 python3.13 -m venv .venv
 source .venv/bin/activate
-python -m pip install -c requirements.lock -e '.[dev]'
+python -m pip install --require-hashes -r requirements-build.lock
+python -m pip install --require-hashes -r requirements-dev.lock
+python -m pip install --no-deps --no-build-isolation -e .
 ```
 
 獨立啟動 Docker 開發 stack 時，完成 README 的憑證設定後，可用 `docker compose --project-name python-backend-server-template up --build -d` 明確指定此專案名稱；後續 logs／down 使用同一個 `--project-name`。Compose 仍使用 README 列出的本機連接埠。

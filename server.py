@@ -45,7 +45,12 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        configure_logging(config.log_level)
+        configure_logging(
+            config.log_level,
+            service_name=config.app_name,
+            environment=config.environment,
+            role="api",
+        )
         async with AsyncExitStack() as stack:
             # Shared resources outlive dispatchers that may drain work on shutdown.
             http_client = await stack.enter_async_context(
@@ -65,7 +70,7 @@ def create_app(
                 role="api",
                 resources=resources,
                 registry=registry,
-                jobs=jobs,
+                jobs=jobs if config.task_backend != "disabled" else None,
             )
             kernels, exports = build_platform_services(config, bindings, resources)
             threads = resources.get("threads")
@@ -105,6 +110,7 @@ def create_app(
         exports_api_enabled=config.exports_api_enabled,
         identity_enabled=config.identity_enabled,
         definitions=catalog.definitions,
+        jobs_enabled=config.task_backend != "disabled",
     )
     return app
 

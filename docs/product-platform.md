@@ -26,7 +26,7 @@ API 與 worker 重用 application 使用案例，經 domain ports 存取外部�
 | 平台能力 | 初始狀態 | 擴充邊界 |
 | --- | --- | --- |
 | API／lifespan、日誌、錯誤、健康檢查 | 啟用 | 通用 runtime |
-| Async 任務與背壓 | memory；空 registry | 模組註冊具名 handler |
+| Async 任務與背壓 | memory；空 registry；可明確 disabled | 模組註冊具名 handler；共享工作選 distributed |
 | MongoDB async client | 本機預設關閉；Compose 啟用 | 模組 repository 依抽象 ports 接入 |
 | 本地身份／JWT | 本機預設關閉；Compose 啟用 | 受控建帳、permission-based 授權 |
 | Kernel 執行 | API 預設關閉；空 registry | 模組提供具版本的 kernel |
@@ -138,7 +138,7 @@ kernel API 需要 identity，啟用後自動開放受保護的 job 查詢。長�
 | `APP_RESOURCE_LIMITS` | JSON 物件，資源名稱對應允許容量 |
 | `APP_RESOURCE_LEASE_SECONDS` | Redis lease 期限，執行時由 heartbeat 續期 |
 
-單程序可用 memory。多個 API worker 且開啟 kernel API 時必須用 Redis；直接啟動 Uvicorn 仍需自行確保設定與實際程序數一致。API 與 worker 共享資源時需使用相同 Redis namespace 與容量。
+development／test 單程序可用 memory。production 無背景工作可用 disabled，開啟 kernel API 時仍須 Redis 容量協調；disabled 僅掛同步 kernel 入口，無 /runs 或 job 查詢。多個 API worker 且開啟 kernel API 時必須用 Redis；直接啟動 Uvicorn 仍需自行確保設定與實際程序數一致。API 與 worker 共享資源時需使用相同 Redis namespace 與容量。
 
 失去 lease 會回報失效、取消可協作的 async 工作並等待清理；Python 無法強制終止已執行 thread，遠端請求也可能已產生副作用。外部 adapter 需驗證 fencing token，避免舊持有者繼續操作受保護資源。需強隔離的 CPU／GPU 工作使用專用 process／remote kernel，避免每個 API worker 載入一份大型模型。
 

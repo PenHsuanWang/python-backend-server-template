@@ -42,7 +42,9 @@ from src.infrastructure.messaging.redis_store import (
 )
 from src.services.concurrency import BoundedThreadExecutor
 from src.services.lifecycle import register_execution_cleanup
+from src.services.observability import configure_logging
 from src.services.resource_manager import open_resources
+from src.shared_models.context import bind_job_context
 
 TERMINAL_STATUSES = {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}
 logger = logging.getLogger(__name__)
@@ -54,9 +56,20 @@ async def execute_request(
     store: RedisJobStore,
     timeout_seconds: float,
 ) -> dict[str, Any]:
+    with bind_job_context(request.job_id, request.request_id):
+        return await _execute_request(request, registry, store, timeout_seconds)
+
+
+async def _execute_request(
+    request: TaskRequest,
+    registry: TaskRegistry,
+    store: RedisJobStore,
+    timeout_seconds: float,
+) -> dict[str, Any]:
     previous = await store.get(request.job_id)
     if previous is not None and previous.status in TERMINAL_STATUSES:
         # A worker can crash after committing a terminal snapshot but before ack.
+        logger.info("Completed job redelivered status=%s", previous.status.value)
         return encode_snapshot(previous)
     running = replace(
         previous or JobSnapshot.queued(request),
@@ -68,6 +81,7 @@ async def execute_request(
         attempts=(previous.attempts if previous is not None else 0) + 1,
     )
     await store.save(running)
+    logger.info("Job started attempt=%s", running.attempts)
     try:
         handler = registry.resolve(request.name)
         async with asyncio.timeout(timeout_seconds):
@@ -83,10 +97,13 @@ async def execute_request(
     except Exception as exc:
         # Exception text can contain credentials or customer data.
         finished = replace(
-            running, status=JobStatus.FAILED, error=f"Task failed ({type(exc).__name__})"
+            running,
+            status=JobStatus.FAILED,
+            error=f"Task failed ({type(exc).__name__})",
         )
     else:
         finished = replace(running, status=JobStatus.SUCCEEDED, result=result)
+    logger.info("Job execution finished status=%s", finished.status.value)
     return encode_snapshot(replace(finished, finished_at=datetime.now(UTC)))
 
 
@@ -95,6 +112,11 @@ async def execute_job(
     context: Annotated[Context, TaskiqDepends()],
 ) -> dict[str, Any]:
     request = decode_request(request_data)
+    with bind_job_context(request.job_id, request.request_id):
+        return await _execute_job(request, context)
+
+
+async def _execute_job(request: TaskRequest, context: Context) -> dict[str, Any]:
     warned = False
     while True:
         try:
@@ -126,10 +148,14 @@ class SnapshotPersistenceMiddleware(TaskiqMiddleware):
         self._retry_delay_seconds = retry_delay_seconds
 
     async def post_execute(self, message: TaskiqMessage, result: TaskiqResult[Any]) -> None:
+        request = decode_request(message.args[0])
+        with bind_job_context(request.job_id, request.request_id):
+            await self._persist_result(request, result)
+
+    async def _persist_result(self, request: TaskRequest, result: TaskiqResult[Any]) -> None:
         if result.is_err:
             if isinstance(result.error, (DispatcherUnavailable, asyncio.CancelledError)):
                 raise result.error
-            request = decode_request(message.args[0])
             previous = await self._store.get(request.job_id)
             snapshot = replace(
                 previous or JobSnapshot.queued(request),
@@ -171,6 +197,8 @@ def build_worker_broker(
     settings: Settings, *, modules: Sequence[ModuleDefinition] | None = None
 ) -> AioPikaBroker:
     """Each worker process creates its own resources during worker startup."""
+    if settings.task_backend != "distributed":
+        raise ValueError("Task workers require the distributed task backend")
     catalog = ModuleCatalog(build_modules(settings) if modules is None else modules)
     broker = build_taskiq_broker(settings, broker_type=LifespanWorkerBroker)
     store = RedisJobStore(
@@ -183,6 +211,12 @@ def build_worker_broker(
 
     @broker.on_event(TaskiqEvents.WORKER_STARTUP)
     async def startup(state: TaskiqState) -> None:
+        configure_logging(
+            settings.log_level,
+            service_name=settings.app_name,
+            environment=settings.environment,
+            role="worker",
+        )
         stack = AsyncExitStack()
         state.module_stack = stack
         try:

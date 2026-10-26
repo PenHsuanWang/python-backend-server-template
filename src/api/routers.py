@@ -34,15 +34,20 @@ def mount_routes(
     exports_api_enabled: bool,
     identity_enabled: bool,
     definitions: Sequence[RouteGroup],
+    jobs_enabled: bool = True,
 ) -> None:
     """Apply the platform's existing URL and application authentication policy."""
     app.include_router(health_router)
-    if expose_job_api or kernel_api_enabled:
+    if jobs_enabled and (expose_job_api or kernel_api_enabled):
         app.include_router(jobs_router, prefix="/api/v1")
     if kernel_api_enabled:
         from src.api.kernels.routers import router as kernels_router
 
         app.include_router(kernels_router, prefix="/api/v1")
+        if jobs_enabled:
+            from src.api.kernels.routers import jobs_router as kernel_jobs_router
+
+            app.include_router(kernel_jobs_router, prefix="/api/v1")
     if exports_api_enabled:
         from src.api.exports.routers import router as exports_router
 

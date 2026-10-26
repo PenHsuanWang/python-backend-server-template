@@ -11,7 +11,8 @@ from src.config.settings import Settings
 from src.domain.jobs.errors import DispatcherUnavailable
 from src.domain.jobs.models import JobSnapshot, TaskRequest
 from src.domain.jobs.ports import TaskResolver
-from src.infrastructure.messaging.redis_store import RedisJobStore, encode_request
+from src.infrastructure.messaging.envelope import encode_request
+from src.infrastructure.messaging.redis_store import RedisJobStore
 
 TASK_NAME = "backend.jobs.execute"
 
@@ -97,6 +98,9 @@ class DistributedJobDispatcher:
         self._registry.resolve(request.name)
         if not self._started:
             raise DispatcherUnavailable("Task publisher has not started")
+        # Invalid local input never creates an orphan QUEUED record. Only an
+        # actual publication failure has the ambiguous confirmation semantics.
+        encoded_request = encode_request(request)
         await self._store.save(JobSnapshot.queued(request))
         try:
             kicker: AsyncKicker[[dict[str, Any]], dict[str, Any]] = AsyncKicker(
@@ -104,7 +108,7 @@ class DistributedJobDispatcher:
                 self._broker,
                 {"ack_type": "when_saved"},
             )
-            await kicker.with_task_id(request.job_id).kiq(encode_request(request))
+            await kicker.with_task_id(request.job_id).kiq(encoded_request)
         except Exception:
             # A confirm timeout is ambiguous: RabbitMQ may already have accepted
             # this message. Keep the queued snapshot instead of declaring failure.

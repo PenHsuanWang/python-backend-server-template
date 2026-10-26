@@ -15,12 +15,14 @@
 ```bash
 python3.13 -m venv .venv
 source .venv/bin/activate
-python -m pip install -c requirements.lock -e '.[dev]'
+python -m pip install --require-hashes -r requirements-build.lock
+python -m pip install --require-hashes -r requirements-dev.lock
+python -m pip install --no-deps --no-build-isolation -e .
 cp .env.example .env
 python server.py --reload
 ```
 
-Windows PowerShell 使用 `.venv\Scripts\Activate.ps1`。也可執行 `uvicorn server:create_app --factory --reload`。預設採 memory 任務後端與單一 API 程序，MongoDB、身份、kernel、匯出及 job 查詢 API 均關閉；只提供健康檢查與 API 文件。
+這份 hash lock／CI 以 Linux 為基準，另有 macOS 本機驗證。原生 Windows 不屬於本次驗證範圍；Windows 團隊請使用 WSL2 或 Linux 容器。也可執行 `uvicorn server:create_app --factory --reload`。預設採 memory 任務後端與單一 API 程序，MongoDB、身份、kernel、匯出及 job 查詢 API 均關閉；只提供健康檢查與 API 文件。
 
 ```bash
 curl http://127.0.0.1:8000/health/live
@@ -28,6 +30,17 @@ curl http://127.0.0.1:8000/health/ready
 ```
 
 文件位於 [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)。應用模組、任務、kernel 與匯出資料源清單皆為空，不會自動產生應用端點或資料表。
+
+## 不使用背景工作的部署
+
+純 HTTP API 可明確停用背景工作，在 production 啟用多個 API 程序，不需 RabbitMQ／Redis：
+
+```bash
+APP_ENVIRONMENT=production APP_TASK_BACKEND=disabled APP_WORKERS=4 \
+python server.py --workers 4
+```
+
+此命令沿用 Mongo／identity 等能力的關閉預設；若已有 `.env`，需確認其中的能力與 resource backend 設定符合目標。`disabled` 不啟動 queue consumers；模組取得的 `context.jobs` 為 `None`，匯出 tasks 或開啟 job 查詢會在啟動驗證時拒絕。需要身分管理或儲存時可分別啟用，受保護的 application API 仍須 identity。同步 kernel 可單獨使用；`/kernels/{name}/runs` 與 job 查詢只在背景工作啟用時掛載。kernel 的 identity 與多程序／production Redis 容量協調要求仍適用。
 
 ## 啟動產品開發環境
 
@@ -105,7 +118,7 @@ taskiq worker worker:broker \
   --wait-tasks-timeout 10
 ```
 
-`--reload` 與多 worker 不能合用。直接執行 Uvicorn 時，必須自行指定 distributed；Application Factory 無法可靠得知 Uvicorn CLI 的 worker 數。[Uvicorn settings](https://uvicorn.dev/settings/)
+`--reload` 與多 worker 不能合用。有共享背景工作時使用 distributed；不需要背景工作時可使用 disabled。直接執行 Uvicorn 時，必須自行維持 APP_WORKERS 與實際 worker 數一致；Application Factory 無法可靠得知 Uvicorn CLI 的 worker 數。[Uvicorn settings](https://uvicorn.dev/settings/)
 
 async 適合等待 I/O；受限 thread pool 用於阻塞 SDK，CPU 密集 Python 工作需另用 process pool／獨立 worker。增加 async 並行數不等於增加 CPU 核心。[Taskiq CLI](https://taskiq-python.github.io/guide/cli.html)
 
@@ -125,7 +138,7 @@ kernel 共享資源可使用 Redis token lease／heartbeat。失去 lease 會取
 | 共享資源 | `APP_RESOURCE_BACKEND`、`APP_RESOURCE_LIMITS`、`APP_RESOURCE_LEASE_SECONDS` |
 | 匯出 | `APP_EXPORTS_API_ENABLED` |
 
-kernel／匯出 API 開關不會安裝任何實際 kernel 或資料源。job 查詢預設關閉；開啟 kernel API 時會一併提供具 tenant／owner 保護的 job 查詢。正式環境的 job API 必須啟用 identity；自訂任務提交需保存 tenant／owner metadata。MongoDB、任務快照與外部副作用不是單一交易；需要原子提交與永久歷史時，依需求設計 outbox、持久 repository 與冪等契約。
+kernel／匯出 API 開關不會安裝任何實際 kernel 或資料源。job 查詢預設關閉；開啟 kernel API 且 task backend 啟用時，會一併提供具 tenant／owner 保護的 job 查詢。正式環境的 job API 必須啟用 identity；自訂任務提交需保存 tenant／owner metadata。MongoDB、任務快照與外部副作用不是單一交易；需要原子提交與永久歷史時，依需求設計 outbox、持久 repository 與冪等契約。
 
 ## 驗證
 
@@ -134,7 +147,9 @@ python scripts/check_boundaries.py
 pytest
 ruff check .
 ruff format --check .
-mypy src bootstrap server.py worker.py manage.py
+mypy src bootstrap scripts server.py worker.py manage.py
+python scripts/verify_package.py
+python scripts/verify_guide.py
 ```
 
 測試 fixture 留在 `tests/`，正式業務 initializer 清單保持空白。RabbitMQ／Redis 可用時可啟用真實跨程序測試：
@@ -150,7 +165,9 @@ CI 定義位於 `.github/workflows/ci.yml`；本次實際驗證與未執行項�
 
 不同團隊新增 application 的操作手冊見 [developer-guide.md](docs/developer-guide.md)，包含檔案落點、設計模式、可複製範例、權限與接入驗證。
 
-完整 [軟體架構設計規格](docs/software-design.md) 包含組裝、scope、API／worker、並行、身份／資料、kernel、失敗語意與驗證對照。另附 [原稿比對](docs/design-review.md)、[更新 SVG](docs/diagrams/backend-platform.svg)、[架構決策](docs/adr/README.md) 及逐位元組保存的 [使用者原稿](docs/references/README.md)。目前通用基線為 PBP-SAD-001 v1.2；參考原稿只保留設計來源，不構成應用場景、實作狀態或未來必備功能的規範。
+完整 [軟體架構設計規格](docs/software-design.md) 包含組裝、scope、API／worker、並行、身份／資料、kernel、失敗語意與驗證對照。另附 [原稿比對](docs/design-review.md)、[更新 SVG](docs/diagrams/backend-platform.svg)、[架構決策](docs/adr/README.md) 及逐位元組保存的 [使用者原稿](docs/references/README.md)。目前通用基線為 PBP-SAD-001 v1.3；參考原稿只保留設計來源，不構成應用場景、實作狀態或未來必備功能的規範。
+
+工程安裝、鎖定更新、建置與品質門檻見 [工程基線](docs/engineering-baseline.md)；團隊責任與版本升級見 [CONTRIBUTING.md](CONTRIBUTING.md)；本次交付範圍見 [交付狀態](docs/handover.md)。
 
 ## Docker／RabbitMQ 真實整合驗證
 

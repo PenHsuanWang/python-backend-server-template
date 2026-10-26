@@ -1,6 +1,6 @@
 # 架構決策紀錄
 
-本文件記錄設計取捨與取代關係。「採用」表示本專案的程式與文件基線，不表示組織已完成生產核准。ADR-001～009 為 2026-10-23 的歷史決策；ADR-010 於 2026-10-24 確立現行通用藍圖政策。實際驗證以 [驗證紀錄](../validation.md) 為準。
+本文件記錄設計取捨與取代關係。「採用」表示本專案的程式與文件基線，不表示組織已完成生產核准。ADR-001～009 為 2026-10-23 的歷史決策；ADR-010 於 2026-10-24 確立通用藍圖政策；ADR-011～013 補充 v1.3 工程基線。實際驗證以 [驗證紀錄](../validation.md) 為準。
 
 **現行規範優先序：** ADR-010 取代舊決策中任何可被解讀為預設產品領域、設定階層或流程的描述。下方舊決策保留原始因果與來源名稱作歷史追溯；原始設計與歷史敘述不是新增功能的必備需求。保留的通用工程決策與 package 基線繼續有效。
 
@@ -71,3 +71,14 @@ CI 守門應依新分層攔截 domain 反向 import、application 選擇具體 a
 | OD-05 | 目標環境部署 | 網路／TLS／secrets、最小權限 DB 帳號、worker probe、metrics／tracing／audit、SLO、壓測、HA／備份／RPO／RTO、故障演練與回滾驗收。 |
 
 本基線已選 Taskiq／RabbitMQ／Redis 作共享任務方案，未因此完成所有真實部署驗收。容量 lease 也不代表應用資源互斥或外部副作用契約已完成。最新已執行及未執行項目以驗證紀錄列出的實際證據為準。
+
+
+## ADR-011～013：v1.3 工程交付基線（2026-10-24）
+
+| ID | 狀態 | 決策 | 驗證與限制 |
+| --- | --- | --- | --- |
+| ADR-011 | 採用 | 新增 disabled task backend，無背景工作可多程序 production；有共享工作仍採 distributed，memory 保留開發單程序。停用時 context.jobs=None，task exports 與 job 查詢拒絕；同步 kernel 可獨立啟用。 | 對應 test_disabled_backend、package／容器 smoke；kernel 的身份與 production Redis 容量限制保留。 |
+| ADR-012 | 採用 | 保留 pip，分 runtime／dev／build hash locks 與固定 resolver；增加實際 artifact 安裝、coverage、guide、安全及 image gates，保留 PR 真服務 integration。 | 詳見 engineering-baseline 與 validation；workflow 定義不等於遠端 required checks 或生產核准。 |
+| ADR-013 | 採用 | 以純 shared_models context 傳遞一般 request/job 關聯；訊息 schema_version=1，兼容舊格式，先驗證再入列；API／worker 共用安全 JSON logging。 | 對應 test_observability 與 distributed/memory 回歸；不宣告已提供 OTel tracing／metrics／worker heartbeat。 |
+
+完整採納與延後範圍見 [工程基線](../engineering-baseline.md) 與 [交付狀態](../handover.md)。

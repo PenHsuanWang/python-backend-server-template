@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     workers: int = Field(default=1, ge=1)
     reload: bool = False
     log_level: Literal["debug", "info", "warning", "error", "critical"] = "info"
-    task_backend: Literal["memory", "distributed"] = "memory"
+    task_backend: Literal["disabled", "memory", "distributed"] = "memory"
     expose_job_api: bool = False
     task_concurrency: int = Field(default=4, ge=1, le=1024)
     task_queue_size: int = Field(default=100, ge=1)
@@ -61,10 +61,12 @@ class Settings(BaseSettings):
             raise ValueError("reload requires exactly one Uvicorn worker")
         if self.task_backend == "memory" and self.workers != 1:
             raise ValueError(
-                "memory task backend requires one worker; use distributed for multiple"
+                "memory task backend requires one worker; use disabled or distributed for multiple"
             )
-        if self.environment == "production" and self.task_backend != "distributed":
-            raise ValueError("production requires the distributed task backend")
+        if self.environment == "production" and self.task_backend == "memory":
+            raise ValueError("production requires disabled or distributed task backend")
+        if self.task_backend == "disabled" and self.expose_job_api:
+            raise ValueError("job queries require an enabled task backend")
         if self.identity_enabled:
             if not self.mongo_enabled:
                 raise ValueError("identity requires MongoDB")

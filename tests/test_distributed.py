@@ -235,6 +235,37 @@ async def test_publish_failure_retains_queued_snapshot_and_hides_connection_deta
         await dispatcher.aclose()
 
 
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"schema_version": 2},
+        {"schema_version": True},
+        {"request_id": "invalid\r\ncorrelation"},
+        {"tenant_id": "tenant-without-owner"},
+        {"payload": {"number": float("nan")}},
+    ],
+)
+async def test_invalid_envelope_is_rejected_before_storage_or_publication(
+    monkeypatch: pytest.MonkeyPatch, changes: dict[str, Any]
+) -> None:
+    store = FakeStore()
+    store.save = AsyncMock(wraps=store.save)
+    broker = InMemoryBroker()
+    broker.kick = AsyncMock()
+    monkeypatch.setattr(distributed, "build_taskiq_broker", lambda settings: broker)
+    monkeypatch.setattr(distributed, "RedisJobStore", lambda *args: store)
+    dispatcher = DistributedJobDispatcher(echo_registry(), Settings(_env_file=None))
+    await dispatcher.start()
+    try:
+        with pytest.raises(ValueError):
+            await dispatcher.dispatch(replace(task_request(), **changes))
+        store.save.assert_not_awaited()
+        broker.kick.assert_not_awaited()
+        assert store.snapshots == {}
+    finally:
+        await dispatcher.aclose()
+
+
 async def test_redis_snapshot_json_roundtrip_and_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
     client = SimpleNamespace(
         ping=AsyncMock(return_value=True),

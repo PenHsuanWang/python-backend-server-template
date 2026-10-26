@@ -6,6 +6,7 @@ adapter when dispatching and querying jobs across multiple server processes.
 
 import asyncio
 import json
+import logging
 from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -13,8 +14,11 @@ from datetime import UTC, datetime
 from src.domain.jobs.errors import DispatcherUnavailable, QueueFull
 from src.domain.jobs.models import JobSnapshot, JobStatus, Payload, TaskRequest
 from src.domain.jobs.ports import TaskResolver
+from src.infrastructure.messaging.envelope import encode_request
+from src.shared_models.context import bind_job_context
 
 _TERMINAL = frozenset({JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED})
+logger = logging.getLogger(__name__)
 
 
 class MemoryJobDispatcher:
@@ -81,6 +85,9 @@ class MemoryJobDispatcher:
         if not await self.is_ready():
             raise DispatcherUnavailable("Job dispatcher is not accepting work")
         self._registry.resolve(request.name)
+        # Apply the same admission contract as the external worker envelope,
+        # before pruning records, evicting history, or inserting queued state.
+        encode_request(request)
         self._prune_expired()
         if request.job_id in self._records:
             raise ValueError(f"Job already exists: {request.job_id}")
@@ -139,48 +146,53 @@ class MemoryJobDispatcher:
     async def _worker(self) -> None:
         while True:
             request = await self._queue.get()
+            with bind_job_context(request.job_id, request.request_id):
+                await self._execute(request)
+
+    async def _execute(self, request: TaskRequest) -> None:
+        logger.info("Job started")
+        try:
+            current = self._records[request.job_id]
+            self._records[request.job_id] = replace(
+                current,
+                status=JobStatus.RUNNING,
+                started_at=datetime.now(UTC),
+                attempts=current.attempts + 1,
+            )
             try:
-                current = self._records[request.job_id]
-                self._records[request.job_id] = replace(
-                    current,
-                    status=JobStatus.RUNNING,
-                    started_at=datetime.now(UTC),
-                    attempts=current.attempts + 1,
+                handler = self._registry.resolve(request.name)
+                async with asyncio.timeout(self._job_timeout_seconds):
+                    result = await handler(request.payload)
+                result = deepcopy(result)
+                if not isinstance(result, dict):
+                    raise TypeError("Task result must be a JSON object")
+                json.dumps(result, allow_nan=False)
+                self._finish(
+                    request.job_id,
+                    JobStatus.SUCCEEDED,
+                    result=result,
                 )
-                try:
-                    handler = self._registry.resolve(request.name)
-                    async with asyncio.timeout(self._job_timeout_seconds):
-                        result = await handler(request.payload)
-                    result = deepcopy(result)
-                    if not isinstance(result, dict):
-                        raise TypeError("Task result must be a JSON object")
-                    json.dumps(result, allow_nan=False)
-                    self._finish(
-                        request.job_id,
-                        JobStatus.SUCCEEDED,
-                        result=result,
-                    )
-                except asyncio.CancelledError:
-                    self._finish(
-                        request.job_id,
-                        JobStatus.CANCELLED,
-                        error="Job cancelled",
-                    )
-                    raise
-                except TimeoutError:
-                    self._finish(
-                        request.job_id,
-                        JobStatus.FAILED,
-                        error=f"Job exceeded {self._job_timeout_seconds:g} seconds",
-                    )
-                except Exception as exc:
-                    self._finish(
-                        request.job_id,
-                        JobStatus.FAILED,
-                        error=f"Task failed ({type(exc).__name__})",
-                    )
-            finally:
-                self._queue.task_done()
+            except asyncio.CancelledError:
+                self._finish(
+                    request.job_id,
+                    JobStatus.CANCELLED,
+                    error="Job cancelled",
+                )
+                raise
+            except TimeoutError:
+                self._finish(
+                    request.job_id,
+                    JobStatus.FAILED,
+                    error=f"Job exceeded {self._job_timeout_seconds:g} seconds",
+                )
+            except Exception as exc:
+                self._finish(
+                    request.job_id,
+                    JobStatus.FAILED,
+                    error=f"Task failed ({type(exc).__name__})",
+                )
+        finally:
+            self._queue.task_done()
 
     def _finish(
         self,
@@ -190,6 +202,7 @@ class MemoryJobDispatcher:
         result: Payload | None = None,
         error: str | None = None,
     ) -> None:
+        logger.info("Job finished status=%s", status.value)
         self._records[job_id] = replace(
             self._records[job_id],
             status=status,

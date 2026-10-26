@@ -19,6 +19,10 @@ def build_modules(settings: Settings | None = None) -> tuple[ModuleDefinition, .
 
 
 def build_dispatcher(settings: Settings, registry: TaskRegistry) -> JobDispatcher:
+    if settings.task_backend == "disabled":
+        from src.infrastructure.messaging.disabled import DisabledJobDispatcher
+
+        return DisabledJobDispatcher()
     if settings.task_backend == "distributed":
         from src.infrastructure.messaging.distributed import DistributedJobDispatcher
 

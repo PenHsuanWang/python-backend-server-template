@@ -232,7 +232,9 @@ class Verification:
             "assert os.getuid()!=0; "
             "assert urllib.request.urlopen('http://127.0.0.1:8000/health/ready').status==200; "
             "import importlib.util; assert importlib.util.find_spec('tests') is None; "
-            "print('default-ready-non-root-no-fixtures')"
+            "assert importlib.util.find_spec('pip') is None; "
+            "assert importlib.util.find_spec('ensurepip') is None; "
+            "print('default-ready-non-root-no-fixtures-no-installers')"
         )
 
         def default_ready() -> bool:
@@ -255,7 +257,7 @@ class Verification:
             "up", "--detach", "--wait", "--wait-timeout", "180", timeout=240, log="startup.log"
         )
         status = self.compose("ps", "--format", "json")
-        (self.output / "containers.json").write_text(self.redact(status))
+        (self.output / "containers.jsonl").write_text(self.redact(status))
         base = f"http://127.0.0.1:{self.port('api', 8000)}"
         self.wait_for(lambda: int(self.queue().get("consumers", 0)) == 2)
         queue = self.queue()

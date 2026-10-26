@@ -336,7 +336,8 @@ async def test_api_and_worker_rollback_shared_resources_when_module_startup_fail
         monkeypatch.setattr(taskiq_worker, "RedisJobStore", lambda *_: store)
         monkeypatch.setattr(taskiq_worker, "AsyncClient", make_client)
         monkeypatch.setattr(taskiq_worker, "open_resources", open_resources)
-        broker = taskiq_worker.build_worker_broker(settings(), modules=definitions)
+        worker_settings = Settings(_env_file=None, environment="test", task_backend="distributed")
+        broker = taskiq_worker.build_worker_broker(worker_settings, modules=definitions)
         state = TaskiqState()
         with pytest.raises(RuntimeError, match="technical startup failure"):
             await broker.event_handlers[TaskiqEvents.WORKER_STARTUP][0](state)

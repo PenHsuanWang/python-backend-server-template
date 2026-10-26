@@ -38,7 +38,7 @@ flowchart LR
 
 Application Factory 指 `server.create_app()`：依設定建立 FastAPI application，註冊路由與 lifespan。這裡的 factory 是軟體建構模式。`server.py` 控制啟動選項；每個 Uvicorn worker 在自身程序內執行 lifespan，沒有跨程序共用的 Python「主執行緒資源」。
 
-每個 API／背景 worker 程序各自持有 event loop、client pool、thread executor、facade 與插件實例。共享任務與容量使用 RabbitMQ／Redis，不靠全域 Python 物件。async 適合 I/O；thread 適合可自行設定逾時的阻塞 SDK；純 Python CPU、GPU 或需要強制終止的工作應選擇獨立 process／remote adapter，現行範本不提供通用 process／GPU 執行器。
+每個 API／背景 worker 程序各自持有 event loop、client pool、thread executor、facade 與插件實例。共享任務與容量使用 RabbitMQ／Redis，不靠全域 Python 物件；純 API 可選 disabled task backend，不建立背景工作，保留多 API 程序能力。async 適合 I/O；thread 適合可自行設定逾時的阻塞 SDK；純 Python CPU、GPU 或需要強制終止的工作應選擇獨立 process／remote adapter，現行範本不提供通用 process／GPU 執行器。
 
 初始化依功能 `requires` 拓撲排序，失敗時回滾；關閉依序 drain dispatcher、取消 active kernel、排空實體 thread，再清理初始化資源。取消 await 不能殺死 thread。Redis lease 失效時取消 cooperative 工作並等待 cleanup；外部副作用仍須應用自行定義 fencing、冪等與復原契約。
 

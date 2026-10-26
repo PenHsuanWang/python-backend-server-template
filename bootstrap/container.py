@@ -44,7 +44,7 @@ def build_platform_services(
     )
     exports = ExportService(bindings.datasets)
     identity = bindings.services.get("identity")
-    if isinstance(identity, IdentityServices):
+    if isinstance(identity, IdentityServices) and settings.task_backend != "disabled":
         bindings.registry.register(
             "platform.kernel.execute",
             KernelJobHandler(kernels, identity.resolve_principal),

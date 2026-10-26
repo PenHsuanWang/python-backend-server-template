@@ -23,6 +23,8 @@ class TaskRequest:
     submitted_at: datetime
     tenant_id: str | None = None
     owner_id: str | None = None
+    schema_version: int = 1
+    request_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

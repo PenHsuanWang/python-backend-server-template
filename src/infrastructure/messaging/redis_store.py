@@ -11,29 +11,9 @@ from typing import Any
 from redis.asyncio import Redis
 
 from src.domain.jobs.errors import DispatcherUnavailable
-from src.domain.jobs.models import JobSnapshot, JobStatus, TaskRequest
-
-
-def encode_request(request: TaskRequest) -> dict[str, Any]:
-    return {
-        "job_id": request.job_id,
-        "name": request.name,
-        "payload": request.payload,
-        "submitted_at": request.submitted_at.isoformat(),
-        "tenant_id": request.tenant_id,
-        "owner_id": request.owner_id,
-    }
-
-
-def decode_request(data: dict[str, Any]) -> TaskRequest:
-    return TaskRequest(
-        job_id=data["job_id"],
-        name=data["name"],
-        payload=data["payload"],
-        submitted_at=datetime.fromisoformat(data["submitted_at"]),
-        tenant_id=data.get("tenant_id"),
-        owner_id=data.get("owner_id"),
-    )
+from src.domain.jobs.models import JobSnapshot, JobStatus
+from src.infrastructure.messaging.envelope import decode_request as decode_request
+from src.infrastructure.messaging.envelope import encode_request as encode_request
 
 
 def encode_snapshot(snapshot: JobSnapshot) -> dict[str, Any]:

@@ -8,6 +8,7 @@ from src.api.dependencies import RuntimeDependency
 from src.api.jobs.schemas import JobResponse
 
 router = APIRouter(prefix="/kernels", tags=["kernels"])
+jobs_router = APIRouter(prefix="/kernels", tags=["kernels"])
 
 
 class KernelInput(BaseModel):
@@ -40,7 +41,7 @@ async def execute_kernel(
     )
 
 
-@router.post("/{name}/runs", response_model=JobResponse, status_code=202)
+@jobs_router.post("/{name}/runs", response_model=JobResponse, status_code=202)
 async def queue_kernel(
     name: str,
     body: KernelInput,

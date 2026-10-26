@@ -11,7 +11,7 @@
 <rect width="2200" height="1690" fill="#fff"/>
 <style>text{font-family:Arial,Helvetica,sans-serif;fill:#1d2e43}.title{font-size:40px;font-weight:700}.subtitle{font-size:22px;fill:#526985}.head{font-size:25px;font-weight:700}.body{font-size:21px}.note{font-size:19px;fill:#526985}.label{font-size:18px;fill:#526985}</style>
 <text x="55" y="65" class="title">Python Backend Platform</text>
-<text x="55" y="105" class="subtitle">Implementation architecture • PBP-SAD-001 v1.2 • 2026-10-24</text>
+<text x="55" y="105" class="subtitle">Implementation architecture • PBP-SAD-001 v1.3 • 2026-10-26</text>
 <rect x="45" y="140" width="2110" height="445" rx="14" fill="#f8fafc" stroke="#ccd7e3" stroke-width="2"/>
 <text x="70" y="183" class="head">1  RUNTIME INVOCATION — independently constructed process instances</text>
 <rect x="80" y="225" width="300" height="110" rx="14" fill="#eef5ff" stroke="#88b5de" stroke-width="2"/>
@@ -47,7 +47,7 @@
 <rect x="1390" y="345" width="650" height="42" rx="14" fill="#edf9f9" stroke="#80c8d2" stroke-width="2"/>
 <text x="1410" y="374" class="note">src/services/ — optional lifecycle / resource / health support</text>
 <polyline points="1270,305 1325,305 1325,366 1390,366" fill="none" stroke="#7589a6" stroke-width="3" stroke-dasharray="9 7" marker-end="url(#wire)"/>
-<text x="80" y="558" class="note">No worker → API HTTP hop. Business initializers, algorithms and export sources are empty by default.</text>
+<text x="80" y="558" class="note">Background runtime is optional: disabled / memory / distributed. Business registries are empty by default.</text>
 <rect x="45" y="620" width="2110" height="350" rx="14" fill="#f8fafc" stroke="#ccd7e3" stroke-width="2"/>
 <text x="70" y="663" class="head">2  INITIALIZATION WIRING — outer composition, outside the request call chain</text>
 <rect x="80" y="710" width="340" height="155" rx="14" fill="#f2f3fa" stroke="#aab7cc" stroke-width="2"/>
@@ -108,6 +108,6 @@
 <text x="480" y="1577" class="label">Startup wiring / optional support</text>
 <polyline points="920,1570 985,1570" fill="none" stroke="#21874d" stroke-width="3" marker-end="url(#import)"/>
 <text x="1000" y="1577" class="label">Static inward import</text>
-<text x="55" y="1635" class="note">Shared external systems: RabbitMQ (delivery) · Redis (TTL snapshots / capacity leases) · MongoDB (identity / application data)</text>
+<text x="55" y="1635" class="note">Optional external systems: RabbitMQ (distributed delivery) · Redis (TTL snapshots / capacity leases) · MongoDB (identity / application data)</text>
 <text x="55" y="1668" class="note">Not implied: application workflows, configuration inheritance, exactly-once effects, worker heartbeat or production HA.</text>
 </svg>

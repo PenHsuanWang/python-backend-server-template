@@ -1,6 +1,6 @@
 # Package、模組命名與功能規範
 
-本規範定義通用 Python Backend 的實體分層與 package 命名，對應 [軟體架構設計規格](software-design.md) v1.2 與專案內更新版架構圖。`bootstrap/` 負責啟動組裝，`src/` 下的 `api`、`services`、`application`、`domain`、`plugins`、`infrastructure` 為同層 package；`config`、`utils`、`shared_models` 是按需使用的支援 package。新增應用沿這些層增加對應模組，不再建立 `backend/modules/<name>/` 或複製一套 feature module 目錄。
+本規範定義通用 Python Backend 的實體分層與 package 命名，對應 [軟體架構設計規格](software-design.md) v1.3 與專案內更新版架構圖。`bootstrap/` 負責啟動組裝，`src/` 下的 `api`、`services`、`application`、`domain`、`plugins`、`infrastructure` 為同層 package；`config`、`utils`、`shared_models` 是按需使用的支援 package。新增應用沿這些層增加對應模組，不再建立 `backend/modules/<name>/` 或複製一套 feature module 目錄。
 
 規範中的 `<capability>`、`<task_name>` 等是待替換佔位名稱。範本提供身份、資料權限、任務、運算與匯出的共通契約；應用的模型、政策、流程與資料來源由新增能力明確定義。`create_app()` 使用軟體工程的 Application Factory Pattern，負責建立 FastAPI application；此處 factory 只指程式建構方式。術語定義見 [術語與範圍](glossary.md)。
 
@@ -64,7 +64,7 @@ router 不建立 DB／broker client、不直接 query repository、不選擇具�
 | `lifecycle.py` | `register_execution_cleanup()` 向 `AsyncExitStack` 登記關閉順序：dispatcher → active operations → physical threads；`server.py`／`bootstrap.worker` 擁有實際 lifespan 與資源。 |
 | `resource_manager.py` | 管理共用 MongoDB、thread runner、容量協調等資源的建立／關閉；具體 adapter 位於 infrastructure，部署選擇與注入位於 bootstrap。 |
 | `health.py` | 不含 HTTP 的 readiness 檢查；反映啟用的必要依賴。`api/health.py` 定義 liveness／readiness HTTP 路由，由 `api/routers.py` 掛載，檢查不觸發業務工作。 |
-| `observability.py` | 結構化記錄與 request context；不記錄秘密及完整業務 payload。日誌不是不可竄改稽核帳本。 |
+| `observability.py` | API／worker 共用結構化記錄與 request／job context；不記錄秘密及完整業務 payload。日誌不是不可竄改稽核帳本。 |
 | `concurrency.py` | 有界 thread 執行、程序內 admission／drain 與取消語意；不承諾強制停止 Python thread。 |
 
 此層的 `services` 指技術性 runtime 能力；應用政策、流程與資料選擇規則由 application／domain 持有。`services` 與 `application` 是同層；application 可以經 domain port 使用需要的 runtime 支援，不必經過固定的 `api → services → application` 呼叫鏈。
@@ -117,7 +117,7 @@ domain 可使用標準函式庫、自己的純核心契約及中性的 `shared_m
 | package／module | 功能規範 |
 | --- | --- |
 | `persistence/` | MongoDB resource、identity repository、export source 等資料 adapter；強制 tenant／owner policy，統一轉換專屬資料型別與錯誤。 |
-| `messaging/` | memory／Taskiq dispatcher、RabbitMQ publisher、Redis job snapshots；實作 domain ports，不決定業務工作流程。 |
+| `messaging/` | disabled（拒絕提交且不啟動背景 task）／memory／Taskiq dispatcher、RabbitMQ publisher、Redis job snapshots；實作 domain ports，不決定業務工作流程。 |
 | `locking/` | memory／Redis 容量 lease；owner token、續租與 fencing 是技術協調，外部受保護操作仍須驗證 token，lease 本身不提供 exactly-once。 |
 | `downstream/` | 空擴充 package；可放置經明確 port 注入的外部服務 adapter，目前沒有內建外部服務整合或結果發布流程。 |
 | `security.py` | 密碼雜湊與 JWT 等本地身份技術 adapter；金鑰由部署設定注入。 |
@@ -130,7 +130,7 @@ adapter 可依 domain ports，不反向依賴 API／application／plugins／boot
 | --- | --- |
 | `src/config/` | `settings.py` 提供通用部署設定，實際使用 `environment.py` 的 `Environment` 與 `constants.py` 的非秘密技術預設值。由 `bootstrap.config`／外層讀取，domain 不透過環境變數隱藏取得設定。 |
 | `src/utils/` | `formatting.csv_cell()` 轉換／保護 CSV 欄位，`time_helpers.utc_now_iso()` 格式化 UTC，`validation.is_valid_request_id()` 驗證 request ID；均已有呼叫位置，不持有 runtime、不開連線、不協調業務。 |
-| `src/shared_models/` | `types.py` 定義 `Payload`、`JSONValue`、`AsyncCloseable`、`ThreadDrainer`；`schemas.py` 的 `ErrorDetail` 與 `dto.py` 的 `ErrorEnvelope` 由 API 錯誤轉換使用。型別中性，不放具 ownership 的 entity 或外層 client。 |
+| `src/shared_models/` | `types.py` 定義 `Payload`、`JSONValue`、`AsyncCloseable`、`ThreadDrainer`；`schemas.py` 的 `ErrorDetail` 與 `dto.py` 的 `ErrorEnvelope` 由 API 錯誤轉換使用。`context.py` 以標準函式庫 ContextVar 提供 request／job 識別與可還原的 binding，不持有 client 或資源；application 取得關聯 metadata，adapter 在每個 job 執行後還原。型別中性，不放具 ownership 的 entity 或外層 client。 |
 
 SVG 的候選檔名不要求每個空白檔案都加入實作。需要時才建立有明確責任的模組；空 package／擴充點不代表該功能已完成。
 

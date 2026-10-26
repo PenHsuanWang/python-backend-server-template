@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=75"]
+requires = ["setuptools==84.2.1", "wheel==0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -27,6 +27,12 @@ dev = [
   "pytest-asyncio>=0.25,<2",
   "ruff>=0.12,<1",
   "mypy>=1.15,<3",
+  "pytest-cov>=7,<8",
+  "build>=1.6,<2",
+  "twine>=6,<7",
+  "pip-audit>=2.10,<3",
+  "bandit>=1.9,<2",
+  "pip-tools>=7.6,<8",
 ]
 
 [tool.setuptools]
@@ -56,3 +62,17 @@ warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = ["taskiq.*", "aio_pika.*", "pamqp.*"]
 ignore_missing_imports = true
+
+[tool.coverage.run]
+branch = true
+source = ["."]
+omit = ["tests/*", "scripts/*", "work/*", "build/*", "dist/*", "*.egg-info/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+# Measured against the full source tree; integration adapters stay in the denominator.
+fail_under = 85
+
+[tool.bandit]
+exclude_dirs = ["tests", "work", "docs", ".venv"]

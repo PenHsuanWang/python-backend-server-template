@@ -140,11 +140,15 @@ class ModuleCatalog:
                     {name: services[name] for name in definition.requires}
                 ),
                 resources=resources if resources is not None else MappingProxyType({}),
-                jobs=jobs,
+                jobs=jobs if settings.task_backend != "disabled" else None,
             )
             exports = await stack.enter_async_context(definition.lifespan(context))
             if not isinstance(exports, ModuleExports):
                 raise TypeError(f"Module {definition.name} must yield ModuleExports")
+            if exports.tasks and settings.task_backend == "disabled":
+                raise ValueError(
+                    f"Module {definition.name} exports tasks but the task backend is disabled"
+                )
             for local_name, handler in exports.tasks.items():
                 if not _NAME.fullmatch(local_name):
                     raise ValueError(f"Invalid task name in module {definition.name}: {local_name}")
