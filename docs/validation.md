@@ -1,4 +1,10 @@
-# 驗證紀錄（更新：2026-10-26）
+# 驗證紀錄（更新：2026-10-27）
+
+## ML 設計 v0.2 的基線符合性核對（2026-10-27 彙整）
+
+針對 ML 設計引用的 commit `08490e84cc88d2ff7300cb97fd23e93ea0e33a1a`，已在 git archive 隔離副本執行平台 import origins、boundary、strict Mypy、非整合單元測試與 pip check，並比對目前程式／locks 的 bytes。結果與完整限制集中於 [ML 基線符合性審查](ml-system-compliance-review.md)及[本輪 evidence](evidence/ml-design-review-2026-10-26/README.md)。
+
+本輪不包含 PostgreSQL／MLflow／新 ACK gate／Spec Delivery／Serving E2E，也沒有新 image 或遠端 CI 結果。下方既有驗證快照保留原樣。
 
 ## CI／pre-commit 增補驗證（2026-10-26）
 

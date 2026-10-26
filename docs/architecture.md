@@ -52,4 +52,6 @@ API schema 負責 HTTP 外層格式；queue adapter 解碼傳輸 envelope；Task
 
 將平台衍生為訓練與模型推論系統時，依 [ML System 設計](ml-system-design.md)新增持久工作、獨立執行器、MLflow、核准與部署契約。該文件描述目標應用架構，相關 ML 能力尚未加入通用基線。
 
+ML v0.2 的 workflow ports 由 Application 擁有，透過 structural typing 保留 Infrastructure 不 import Application 的政策；[C4 L1～L4](diagrams/ml-system-v0.2/README.md)與[指定 commit 符合性核對](ml-system-compliance-review.md)分別描述目標設計及已驗證的平台範圍。
+
 完整 [設計規格](software-design.md)、[模組功能規範](module-spec.md)、[開發手冊](developer-guide.md)、[微服務契約設計與演進指南](microservice-contracts.md)、[術語](glossary.md)、[搬移對照](package-migration.md)、[部署說明](product-platform.md)、[驗證紀錄](validation.md) 與 [決策](adr/README.md) 共同構成工程交付。

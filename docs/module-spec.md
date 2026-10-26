@@ -136,6 +136,8 @@ SVG 的候選檔名不要求每個空白檔案都加入實作。需要時才建�
 
 ## 命名與依賴規則
 
+Port 依真正消費層決定 ownership：Domain 自己需要的業務抽象放 domain；Application workflow 的 executor、publisher、tracker、runtime 等 Protocol 可放 `application/<capability>/ports.py`。Infrastructure／Plugins 仍不得 import application，可依公開純 DTO 實作同形方法，再由 bootstrap 型別檢查 structural conformance。現有 identity/jobs 等 Domain Ports 保留，不要求為新設計遷移舊契約。ML 的正式對照見 [Port Ownership](ml-system-design.md#55-正式-port-ownership)。
+
 - package／Python 模組使用 `snake_case`；class 使用 `PascalCase`；Protocol 依角色命名，不以 `Manager` 包辦無關責任。
 - 同一能力跨層採一致名稱，例如 `src/domain/<capability>/`、`src/application/<capability>/`、`src/api/<capability>/`。具體 outbound adapter 按技術分類至 infrastructure，策略按類型放 plugins。
 - 不保留 `backend.*` 的相容性轉接 package。程式、測試、設定與文件應使用新的 `src.*`／`bootstrap.*` 路徑。

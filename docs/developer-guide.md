@@ -98,6 +98,8 @@ checker 不驗證 capability ownership、facade 公開範圍、查詢的 tenant�
 
 優先使用 Protocol 與組合，避免以 `BaseService`／`BaseRepository` 包辦無關責任。繼承本身並非禁止：例外階層或具明確替換契約的合理繼承仍可使用；審查重點是責任、耦合與可替換性。`dataclass(frozen=True, slots=True)` 是本手冊的模型示範，並非 AST checker 強制的所有模型形式。
 
+本手冊的 items 範例將 Repository 放 Domain，是既有示範的選擇，並非要求所有 workflow interface 都放 Domain。新 Application Port 可由消費它的 capability 擁有；Adapter 不繼承／import Application Protocol，bootstrap 以 structural typing 組裝，行為另用共用 contract tests 驗證。ML 特定落點依 [v0.2 Port Ownership](ml-system-design.md#55-正式-port-ownership)；本段不更動下方可執行範例。
+
 以下做法不符合目前的平台契約：
 
 - 將 Runtime、ModuleContext 或 resources mapping 傳入 application／domain 作為 Service Locator。
