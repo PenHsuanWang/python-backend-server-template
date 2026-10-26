@@ -1,0 +1,78 @@
+# Tools come from requirements-dev.lock; no second hook dependency resolver.
+# .venv is also created by the CI quality job and works with Git GUI clients.
+minimum_pre_commit_version: "4.7.0"
+default_stages: [pre-commit]
+repos:
+  - repo: local
+    hooks:
+      - id: forbid-local-env
+        name: Reject local environment files
+        language: fail
+        entry: Commit .env.example only; keep local environment files out of Git.
+        files: '(^|/)\.env($|\.(?!example$).+)'
+      - id: check-merge-conflict
+        name: Check merge conflict markers
+        language: unsupported
+        entry: .venv/bin/python -m pre_commit_hooks.check_merge_conflict --assume-in-merge
+        types: [text]
+      - id: detect-private-key
+        name: Detect private keys
+        language: unsupported
+        entry: .venv/bin/python -m pre_commit_hooks.detect_private_key
+        types: [text]
+      - id: check-yaml
+        name: Check YAML syntax
+        language: unsupported
+        entry: .venv/bin/python -m pre_commit_hooks.check_yaml
+        types: [yaml]
+      - id: check-toml
+        name: Check TOML syntax
+        language: unsupported
+        entry: .venv/bin/python -m pre_commit_hooks.check_toml
+        types: [toml]
+      - id: check-json
+        name: Check JSON syntax
+        language: unsupported
+        entry: .venv/bin/python -m pre_commit_hooks.check_json
+        types: [json]
+        # Historical CLI reports may be JSONL despite their original .json name.
+        exclude: '^docs/(references|evidence)/'
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+        language: unsupported
+        entry: .venv/bin/python -m pre_commit_hooks.trailing_whitespace_fixer --markdown-linebreak-ext=md
+        types: [text]
+        # User originals and audit evidence are immutable; security hooks still scan them.
+        exclude: '^docs/(references|evidence)/'
+      - id: end-of-file-fixer
+        name: Fix end of files
+        language: unsupported
+        entry: .venv/bin/python -m pre_commit_hooks.end_of_file_fixer
+        types: [text]
+        exclude: '^docs/(references|evidence)/'
+      - id: ruff
+        name: Ruff lint
+        language: unsupported
+        entry: .venv/bin/python -m ruff check --fix
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: Ruff format
+        language: unsupported
+        entry: .venv/bin/python -m ruff format
+        types_or: [python, pyi]
+        require_serial: true
+      - id: mypy
+        name: Mypy strict
+        language: unsupported
+        entry: .venv/bin/python -m mypy src bootstrap scripts server.py worker.py manage.py
+        pass_filenames: false
+        require_serial: true
+        files: '^(src/|bootstrap/|scripts/|(?:server|worker|manage)\.py$|pyproject\.toml$|requirements(?:-[a-z]+)?\.lock$)'
+      - id: architecture-boundaries
+        name: Check architecture boundaries
+        language: unsupported
+        entry: .venv/bin/python scripts/check_boundaries.py
+        pass_filenames: false
+        always_run: true
+        require_serial: true

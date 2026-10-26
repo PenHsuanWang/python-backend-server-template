@@ -2,6 +2,7 @@ name: Container
 
 on:
   push:
+    branches: [main]
   pull_request:
   schedule:
     - cron: "47 3 * * 1"
@@ -9,6 +10,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   image-and-broker:

@@ -4,6 +4,14 @@
 
 **交付判定：可交付給開發團隊，作為通用 Python Backend 範本與產品開發基線。** 本次必要程式、CI、依賴鎖定、開發規範與驗證證據均已更新在此專案。架構文件為 PBP-SAD-001 v1.3，開發手冊為 DG-001 v1.1；Python distribution 仍為 0.1.0，文件版本不代表套件 release 已發佈。
 
+## CI／pre-commit 增補交付（2026-10-26）
+
+在 `0ac0bda3035d17e90cd01670a3045a4271ce871c` 之上加入 12 個共用 hooks、CI `quality` 與 `CI required` gate、過期工作取消及獨立 Bandit 報告。工具版本納入 dev hash lock，runtime／build locks 與正式 Python 邏輯不變。
+
+本 clone 的 hook 已安裝；其他團隊仍須按 [操作規範](ci-precommit.md) 各自安裝。Linux Python 3.11 與 macOS Python 3.13 的單元／coverage 與品質驗證通過；另完成 macOS Python 3.13 的套件及開發手冊驗證，詳見 [增補驗證](validation.md) 與 [證據](evidence/ci-precommit-2026-10-26/README.md)。
+
+此次增補仍為未提交的本機變更；原先已存在但未追蹤的 `.gitleaks.toml` 保留原樣，須與新的 pre-commit 設定、文件及證據一併納入後續提交。尚未替使用者 commit／push、設定遠端 required checks 或重新核准產品部署。
+
 ## 已完成的交付範圍
 
 - 保留九個分層 package、明確 bootstrap、API／worker lifespan、OOP／Ports & Adapters／Application Service 與建構式注入；正式業務能力與演算法註冊清單仍空白。
@@ -13,7 +21,7 @@
 - 固定基底 image digest；安裝檢查後移除 runtime 不需要的 pip／ensurepip，避免保留其內附易受影響套件。容器 smoke 同時檢查非 root 與無安裝工具。
 - 更新架構圖、設計規格、module 功能規範、開發手冊、工程基線、CONTRIBUTING、ADR 與原建議採納紀錄。
 
-實測項目、數字與限制以 [validation.md](validation.md) 為唯一彙整；原始結果存於 [本次交付證據](evidence/handover-2026-10-26/README.md)。既有歷史證據未改寫。
+實測項目、數字與限制以 [validation.md](validation.md) 為唯一彙整；原始結果存於 [先前交付證據](evidence/handover-2026-10-26/README.md) 及 [CI 增補證據](evidence/ci-precommit-2026-10-26/README.md)。既有歷史證據未改寫。
 
 ## 團隊拿到專案後
 
@@ -34,4 +42,4 @@
 - 原生 Windows 未驗證；Windows 使用者採 WSL2／Linux container。已保存 Linux Python 3.11 及 macOS Python 3.13 的驗證。
 - 授權 metadata 由權利人決定；本次未自行套用開源授權。
 
-本次交付當時，修改已落地本機工作樹；保留既有 Git 歷史，尚未新增 commit、push 或建立遠端 release。來源雜湊與交付範圍保存在證據目錄，可供後續版本提交及簽核。
+先前交付驗證當時，修改已落地本機工作樹；保留既有 Git 歷史，尚未新增 commit、push 或建立遠端 release。來源雜湊與交付範圍保存在證據目錄，可供後續版本提交及簽核。

@@ -2,6 +2,7 @@ name: Security
 
 on:
   push:
+    branches: [main]
   pull_request:
   schedule:
     - cron: "31 3 * * 1"
@@ -9,6 +10,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   python-security:
@@ -23,7 +28,8 @@ jobs:
           python-version: "3.13"
           cache: pip
           cache-dependency-path: requirements-dev.lock
-      - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - id: install
+        run: python -m pip install --require-hashes -r requirements-dev.lock
       - run: mkdir -p work/security
       # A known vulnerability in any pinned runtime/dev/build dependency blocks the check.
       # Service/index errors also fail; exclusions require a reviewed policy change.
@@ -33,7 +39,8 @@ jobs:
           -r requirements-dev.lock -r requirements-build.lock
           --format json --output work/security/dependency-audit.json
       # Medium/high severity AND medium/high confidence findings block the check.
-      - run: >-
+      - if: ${{ always() && steps.install.outcome == 'success' }}
+        run: >-
           python -m bandit -c pyproject.toml -r src bootstrap server.py worker.py manage.py
           -ll -ii --format json --output work/security/bandit.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

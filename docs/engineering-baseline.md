@@ -15,6 +15,7 @@ python -m pip install --require-hashes -r requirements-build.lock
 python -m pip install --require-hashes -r requirements-dev.lock
 python -m pip install --no-deps --no-build-isolation -e .
 python -m pip check
+python -m pre_commit install
 ```
 
 build／dev／runtime 分別使用 requirements-build.lock、requirements-dev.lock、requirements-runtime.lock；三者包含精確版本與下載 artifact hashes。requirements.lock 保留為產生式相容 constraints，使用 -c 不等於檢查完整 artifact hashes。正式安裝優先使用上述 hash locks，再以 no-deps/no-build-isolation 安裝本地已核對專案，避免再次解析未鎖定 build 依賴。
@@ -31,11 +32,10 @@ python scripts/update_locks.py --upgrade
 
 ## 品質與開發手冊驗證
 
+本機提交與 CI 的 `quality` job 共用 [pre-commit 設定與操作流程](ci-precommit.md)。每份 clone 安裝一次 hook；一般 commit 依 staged 檔案選擇檢查，PR 前與 CI 執行所有 Git 追蹤檔案。Mypy 與 boundary 仍採專案範圍；自動修正後需審查再 stage。
+
 ```bash
-python -m ruff check .
-python -m ruff format --check .
-python -m mypy src bootstrap scripts server.py worker.py manage.py
-python scripts/check_boundaries.py
+python -m pre_commit run --all-files --show-diff-on-failure
 python -m pytest -m 'not integration' --cov --cov-report=term-missing --cov-report=xml:work/coverage.xml
 python scripts/verify_guide.py
 ```
@@ -57,7 +57,7 @@ Docker verifier 建正式 image，驗原始 CMD／非 root，再以隔離 stack 
 
 ## CI 與安全檢查
 
-保留 PR 的 Ruff／格式／Mypy／boundary／unit 與 RabbitMQ／Redis／Mongo integration。新增 coverage、package、guide、依賴／靜態／secret 掃描及 image 檢查；排程掃描會對新公告漏洞再次評估。各工作細節及觸發頻率以 .github/workflows/ 為準。遠端定義存在不等於實際執行成功或已設為 required check。
+PR 與 main push 執行共用 pre-commit 品質規則、unit／coverage、package、guide、RabbitMQ／Redis／Mongo integration，以及獨立的 Security／Container workflows；另保留手動觸發與安全／容器每週排程。同 workflow／事件／PR 或 ref 的新執行會取消過期執行。`CI required` 彙整 CI jobs，失敗、取消或跳過均不通過；不包含另兩份 workflow。管理員另將 `python-security`、`secrets`、`image-and-broker` 設為 required checks，並依實際 check 名稱核對。各工作細節及觸發頻率以 `.github/workflows/` 為準。遠端定義存在不等於實際執行成功或已設為 required check。
 
 Dependency audit、Bandit、gitleaks 與 Trivy 互補；掃描結果須列掃描範圍、版本、資料庫／時間與失敗門檻。預設掃描例外只准已核對的精確誤判，不允許整個 auth、docs、history 免掃。Trivy 的完整清單與高風險 gate 分開保存；未修復項目仍須列出，不能將 gate 通過描述成零漏洞。
 

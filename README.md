@@ -18,6 +18,7 @@ source .venv/bin/activate
 python -m pip install --require-hashes -r requirements-build.lock
 python -m pip install --require-hashes -r requirements-dev.lock
 python -m pip install --no-deps --no-build-isolation -e .
+python -m pre_commit install
 cp .env.example .env
 python server.py --reload
 ```
@@ -143,11 +144,8 @@ kernel／匯出 API 開關不會安裝任何實際 kernel 或資料源。job 查
 ## 驗證
 
 ```bash
-python scripts/check_boundaries.py
+python -m pre_commit run --all-files --show-diff-on-failure
 pytest
-ruff check .
-ruff format --check .
-mypy src bootstrap scripts server.py worker.py manage.py
 python scripts/verify_package.py
 python scripts/verify_guide.py
 ```
@@ -167,7 +165,7 @@ CI 定義位於 `.github/workflows/ci.yml`；本次實際驗證與未執行項�
 
 完整 [軟體架構設計規格](docs/software-design.md) 包含組裝、scope、API／worker、並行、身份／資料、kernel、失敗語意與驗證對照。另附 [原稿比對](docs/design-review.md)、[更新 SVG](docs/diagrams/backend-platform.svg)、[架構決策](docs/adr/README.md) 及逐位元組保存的 [使用者原稿](docs/references/README.md)。目前通用基線為 PBP-SAD-001 v1.3；參考原稿只保留設計來源，不構成應用場景、實作狀態或未來必備功能的規範。
 
-工程安裝、鎖定更新、建置與品質門檻見 [工程基線](docs/engineering-baseline.md)；團隊責任與版本升級見 [CONTRIBUTING.md](CONTRIBUTING.md)；本次交付範圍見 [交付狀態](docs/handover.md)。
+工程安裝、鎖定更新、建置與品質門檻見 [工程基線](docs/engineering-baseline.md)；本機 hooks 與 CI 合併檢查見 [CI／pre-commit 操作規範](docs/ci-precommit.md)；團隊責任與版本升級見 [CONTRIBUTING.md](CONTRIBUTING.md)；本次交付範圍見 [交付狀態](docs/handover.md)。
 
 ## Docker／RabbitMQ 真實整合驗證
 

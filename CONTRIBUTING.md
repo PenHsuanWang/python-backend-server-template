@@ -11,11 +11,15 @@
 
 ## 提交與審查
 
+每份 clone 先依 [CI／pre-commit 操作規範](docs/ci-precommit.md) 建立 `.venv`、hash 安裝 dev 依賴並執行 `python -m pre_commit install`。工具統一使用專案 `.venv`，hook 不會隨 clone 自動安裝。
+
 1. 由目前交付基線建立工作分支，記錄變更動機、能力 owner 與公開行為。
 2. 定義 schema、錯誤、permission、tenant／owner、資料 ownership。背景工作另訂重送、冪等、副作用完成、timeout、取消及保存期限。
-3. 依 [工程基線](docs/engineering-baseline.md) 執行品質、授權／契約及所需整合檢查；PR 附指令、結果、外部依賴與尚未驗證項目。
+3. 提交時執行 staged hooks；自動修正後先檢視 diff，再重新 stage 並重試。PR 前執行 `python -m pre_commit run --all-files --show-diff-on-failure`，並依 [工程基線](docs/engineering-baseline.md) 完成授權／契約及所需測試與整合檢查；PR 附指令、結果、外部依賴與尚未驗證項目。
 4. 不提交 .env、token、密碼、測試 DB 或本機產物。範例憑證必須明確是隔離測試用途；不得以廣泛忽略規則規避 secret 掃描。
 5. 同步設計、開發、部署與操作文件。需要新 SDK 時由同一鎖定流程更新並審查依賴、授權及安全掃描，不手改 hash。
+
+管理員應將 `CI required`、`python-security`、`secrets`、`image-and-broker` 設為目標分支的 required checks；先以實際 PR 核對 check 名稱。`CI required` 僅彙整 CI workflow，另兩份 workflow 的檢查需分別選取。設定細節見操作規範；本文件不代表遠端 branch protection 已設定。
 
 ## 契約、版本與升級
 

@@ -2,11 +2,16 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   workflows:
@@ -20,6 +25,25 @@ jobs:
           docker run --rm --volume "$PWD:/repo:ro" --workdir /repo
           rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
           -color
+
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      # Local hooks use this same hash-locked environment on developer machines.
+      - run: python -m venv .venv
+      - run: .venv/bin/python -m pip install --require-hashes -r requirements-dev.lock
+      - run: .venv/bin/python -m pip install --no-deps --no-build-isolation -e .
+      - run: .venv/bin/python -m pre_commit validate-config
+      - run: .venv/bin/python -m pre_commit run --all-files --show-diff-on-failure
 
   unit:
     runs-on: ubuntu-latest
@@ -39,10 +63,6 @@ jobs:
           cache-dependency-path: requirements-dev.lock
       - run: python -m pip install --require-hashes -r requirements-dev.lock
       - run: python -m pip install --no-deps --no-build-isolation -e .
-      - run: python -m ruff check .
-      - run: python -m ruff format --check .
-      - run: python -m mypy src bootstrap scripts server.py worker.py manage.py
-      - run: python scripts/check_boundaries.py
       - run: python -m pytest -m "not integration" --cov --cov-report=term --cov-report=xml:work/coverage.xml -q
       - run: python scripts/verify_guide.py
         if: matrix.python == '3.13'
@@ -144,3 +164,31 @@ jobs:
           name: package-python-${{ matrix.python }}
           path: work/package-validation/
           if-no-files-found: warn
+
+  required:
+    name: CI required
+    if: ${{ always() }}
+    needs: [workflows, quality, unit, integration, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI job to succeed
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          results = json.loads(os.environ["JOB_RESULTS"])
+          unsuccessful = {
+              name: job["result"]
+              for name, job in results.items()
+              if job["result"] != "success"
+          }
+          if unsuccessful:
+              print(f"Required CI jobs did not succeed: {unsuccessful}", file=sys.stderr)
+              raise SystemExit(1)
+          print("All required CI jobs succeeded.")
+          PY

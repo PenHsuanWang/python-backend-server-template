@@ -1,8 +1,27 @@
 # 驗證紀錄（更新：2026-10-26）
 
-## v1.3 工程交付驗收
+## CI／pre-commit 增補驗證（2026-10-26）
 
-交付對象為使用通用範本的開發團隊。以下結果對應本機指定專案的交付工作樹；基底 commit 為 `31248de22da57fc604d1481465a7cc71dd1f6801`，新修改尚未 commit／push。完整來源與 artifact 雜湊另存證據，不能只用舊 commit 宣稱新版本已驗收。
+本次以 `0ac0bda3035d17e90cd01670a3045a4271ce871c` 為基底，新增本機 hooks 與 CI 共用品質入口。修改位於本機工作樹，尚未 commit／push。以下增補結果不取代先前 Docker／broker 交付快照。
+
+| 項目 | 實際結果 |
+| --- | --- |
+| 共用品質檢查 | pre-commit 4.7.0／pre-commit-hooks 6.0.0，12 個 hooks；所有追蹤檔與新增設定／文件皆檢查通過。未匹配檔案的 hooks 依規則略過。 |
+| Hook 安裝與拒絕行為 | 本機 `.git/hooks/pre-commit` 已安裝；隔離 Git 副本的實際 staged hook 執行通過。13 項情境涵蓋無效 YAML、合併標記、合成私鑰標記、禁止本機 env、允許範例、自動修正及 CI gate。未建立測試 commit。 |
+| CI required gate | 直接執行 workflow 中的 gate 腳本；success 回傳 0，failure／cancelled／skipped 各回傳 1。 |
+| Workflow 語法 | 三份 workflows 通過固定 digest 的 actionlint 1.7.12。 |
+| macOS Python 3.13.11 | 440 passed、4 integration deselected，合併 line／branch coverage **86.47%**，85% 門檻通過。 |
+| Linux Python 3.11 | 固定 digest 映像內新建 venv、hash 安裝新增 dev lock，pip check、pre-commit config、Ruff、格式、strict Mypy、boundary 通過；440 passed、4 integration deselected，coverage **86.60%**。 |
+| 套件／手冊 | wheel／sdist 非 editable 安裝與 Twine strict 通過；同步與背景 guide 範例的 boundary／Ruff／格式／Mypy／測試通過。 |
+| 依賴安全 | 依 CI 相同 require-hashes／strict 參數，稽核 dev／build 的 120 筆條目（含重複），零已知漏洞。 |
+| Secret | 目前變更的隔離來源快照通過 Gitleaks directory 掃描；此為工作樹快照掃描，Git 歷史掃描仍保留於 CI。 |
+| 保留項目 | runtime／build locks、正式 Python 邏輯與既有 references／evidence 未改寫；新增工程證據獨立保存。 |
+
+[增補證據與指令](evidence/ci-precommit-2026-10-26/README.md)、[團隊安裝／操作規範](ci-precommit.md)。本次未重建 Docker image 或重跑 broker 整合，相關結果沿用下方先前交付快照；未宣稱 GitHub Actions 已執行或 branch protection 已設定。Required checks 應由管理員選取 `CI required`、`python-security`、`secrets`、`image-and-broker`。
+
+## v1.3 工程交付驗收（先前快照）
+
+此先前快照的交付對象為使用通用範本的開發團隊。以下結果對應當時指定專案的交付工作樹；基底 commit 為 `31248de22da57fc604d1481465a7cc71dd1f6801`，該快照驗證當時的新修改尚未 commit／push。完整來源與 artifact 雜湊另存證據，不能只用舊 commit 宣稱新版本已驗收。
 
 | 項目 | 實際結果與範圍 |
 | --- | --- |
