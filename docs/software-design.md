@@ -301,6 +301,8 @@ API lifespan 與 worker startup 共用 logging initializer，管理 `src` 與 `b
 
 交付物回滾需使用已驗證的相容映像與設定、保留資料 volumes，先停止新提交並處理 in-flight。沒有通用 DB downgrade 或自動 queue schema migration；產品變更前必須定義新舊 payload/契約並存與資料遷移策略。備份恢復、HA、憑證輪替、SLO、RPO/RTO、容量與告警閾值由目標環境的部署驗收決定。
 
+目前部署模型是同一份 distribution／image 依角色啟動 API 與 worker 的 modular monolith。`ModuleExports.services`、共用 queue 與共用資源不代表 capability 已具獨立服務契約；抽離前依[微服務契約設計與演進指南](microservice-contracts.md)完成 wire contract、資料與 queue ownership、服務身分、相容性、冪等及 rollout 驗收。本基線尚未宣告已提供 service discovery、契約 registry、outbox／inbox、獨立服務資料庫或 Kubernetes manifests。
+
 ## 12. 實作與驗證可追溯性
 
 | 需求／原稿原則 | 實作依據 | 驗證依據／狀態 |

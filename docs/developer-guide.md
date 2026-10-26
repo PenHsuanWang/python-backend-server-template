@@ -1063,6 +1063,8 @@ async def test_routes_map_domain_errors() -> None:
 - 不建立互相 `requires` 的循環。若兩個能力相互依賴，先釐清共同流程由誰協調，必要時新增獨立協調能力或抽出穩定契約。
 - 靜態 checker 允許同一層內部 import，因此不能代替跨能力公開邊界審查。單純「import 檢查通過」不代表依賴另一團隊的內部實作是可接受契約。
 
+`ModuleExports.services` 只提供程序內 facade。能力拆成獨立 process／deployment 前，消費方保留自己定義的窄 Protocol，先以 local adapter 轉接 facade，再由 bootstrap 換成 HTTP／message remote adapter；wire schema、資料 ownership、相容版本、冪等、服務身分與 rollout 依[微服務契約設計與演進指南](microservice-contracts.md)治理。
+
 ### 7.3 版本、資料與操作交付
 
 每個能力交付前，應與消費／維運團隊確認：
@@ -1131,7 +1133,9 @@ async def test_routes_map_domain_errors() -> None:
 
 ## 10. 相關文件
 
+- [ML System 開發方向與架構設計](ml-system-design.md)：以本平台實作訓練、MLflow、核准、部署與推論的目標設計及分階段驗收
 - [模組功能規範](module-spec.md)：各層與 `ModuleDefinition`／`ModuleExports` 的規範性定義
+- [微服務契約設計與演進指南](microservice-contracts.md)：跨 process／deployment 的 HTTP、command、event、資料與相容性治理
 - [軟體架構設計規格](software-design.md)：生命週期、並行、任務、失敗語意
 - [術語](glossary.md)：Application Factory、Capability、Tenant 等定義
 - [產品與部署說明](product-platform.md)：環境變數、部署與權限

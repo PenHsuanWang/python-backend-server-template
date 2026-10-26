@@ -50,4 +50,6 @@ API schema 負責 HTTP 外層格式；queue adapter 解碼傳輸 envelope；Task
 
 身分與資料隔離是 permission／tenant／owner 基礎，並非完整 RBAC／ABAC 或逐 kernel entitlement。SOLID 透過責任分層、Protocol、明確 composition、窄介面及契約測試實踐；不要求所有能力共用繼承基底，靜態 checker／mypy 也不證明全部行為。
 
-完整 [設計規格](software-design.md)、[模組功能規範](module-spec.md)、[術語](glossary.md)、[搬移對照](package-migration.md)、[部署說明](product-platform.md)、[驗證紀錄](validation.md) 與 [決策](adr/README.md) 共同構成工程交付。
+將平台衍生為訓練與模型推論系統時，依 [ML System 設計](ml-system-design.md)新增持久工作、獨立執行器、MLflow、核准與部署契約。該文件描述目標應用架構，相關 ML 能力尚未加入通用基線。
+
+完整 [設計規格](software-design.md)、[模組功能規範](module-spec.md)、[開發手冊](developer-guide.md)、[微服務契約設計與演進指南](microservice-contracts.md)、[術語](glossary.md)、[搬移對照](package-migration.md)、[部署說明](product-platform.md)、[驗證紀錄](validation.md) 與 [決策](adr/README.md) 共同構成工程交付。

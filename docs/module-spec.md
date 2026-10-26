@@ -192,6 +192,8 @@ module = ModuleDefinition(name="capability", lifespan=lifespan)
 
 啟動 context 中的設定、HTTP client、角色、依賴與資源，只供 bootstrap 使用。從 context 取得 `threads`、`leases`、`mongodb` 或其他 facade 後，僅把使用案例需要的窄介面傳入建構式。不要把完整 context、resources mapping 或 Runtime 傳入 application／domain。
 
+`ModuleExports.services` 與 `ModuleContext.dependencies` 是程序內組裝契約，不是跨網路介面。能力跨 process／deployment 後，必須改用具版本的 HTTP 或 message wire contract，並由 consumer-owned Protocol 隔離 local／remote adapter；ownership、相容性、冪等與發布規則見[微服務契約設計與演進指南](microservice-contracts.md)。gRPC／Protobuf 不在該指南目前範圍內，採用前須另訂 schema 相容規範。
+
 API 與 worker 各自組裝程序資源；同一部署必須使用相同 handler namespace、payload 契約與 kernel 版本。初始化過程不可提交工作，dispatcher 與其他依賴此時可能尚未 ready。migration、全域排程器與一次性管理任務應使用獨立管理入口，不依賴每個程序的 lifespan 自動執行一次。
 
 ## 任務、kernel 與匯出的契約
